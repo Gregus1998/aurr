@@ -2,7 +2,9 @@
 
 ## Tips and Triks: .devcontainer/devcontainer.json
 
-Dont know if we need: .devcontainer/devcontainer.json -> but it makes it possible to run the cod eon any system with docker. Sounds nice. 
+Dont know if we need: .devcontainer/devcontainer.json 
+    -> but it makes it possible to run the code on any system with docker. Sounds nice. 
+    -> Need to create a a run script based on the: .devcontainer/devcontainer.
 
 Source: https://bkedwards.github.io/comp423-course-notes/tutorials/rust-setup/
 name: A descriptive name for your dev container.

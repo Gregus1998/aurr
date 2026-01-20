@@ -1,0 +1,13 @@
+# Config file for the AURR manager
+# Cloud config:
+ASA_NAME = "kapestorageaccount"
+ASA_TOKEN = ""
+
+# Local Config:
+LOGDIR = "log/AURR.log"
+DATADIR = "data/"
+LOCAL_TOOLS_DIR =  "data/tools/"
+
+# Tools Config
+SURGE_COLLECT_PASSWORD = "pitcherjolly"
+SURGE_AZURE_STORAGE_ACCOUNT = "kapestorageaccount"

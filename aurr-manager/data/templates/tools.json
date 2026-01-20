@@ -1,0 +1,10 @@
+[
+    {
+        "name" : "Surge-Collect",
+        "author" : "Jonas Sørensen",
+        "localpath" : "aurr-manager/data/tools/Surge-Collect.exe",
+        "call" : {
+        "Default_Windows_Upload_Azure" : ["Surge-Collect.exe", "SURGE_COLLECT_PASSWORD", "SURGE_AZURE_STORAGE_ACCOUNT", "--sas-token=SURGE-SAS-TOKEN"]
+        }
+    }
+]

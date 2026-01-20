@@ -1,0 +1,8 @@
+{
+    "Name" : "Windows 11 Generic",
+    "OS" : "Windows",
+    "Tasks" : {
+        "Memory" : ["Default"],
+        "Triage" : ["Default"]
+    }
+}
