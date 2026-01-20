@@ -37,10 +37,10 @@ impl ToolConfig {
 
 #[derive(serde::Deserialize, Debug, Clone)]
 pub struct Tool{
-    name:String,
-    author: String,
-    localpath:String,
-    call:HashMap<String,Vec<String>>
+    pub name:String,
+    pub author: String,
+    pub localpath:String,
+    pub call:HashMap<String,Vec<String>>
 }
 
 impl_has_name!(Tool);

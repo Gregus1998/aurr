@@ -1,8 +1,13 @@
 # Ignore all .log files
 *.log
 
+#Ignore Cargo.lock
+*.lock
+
+#Ignore Config.toml
+*Config.toml
+
 # Ignore all files in rust target directory
 aurr-manager/target/
 aurr-manager/data/tools/
-
 

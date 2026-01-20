@@ -1,47 +1,49 @@
 // Library to store all azure structs and functions. 
-use crate::{error, lib::{
-    error::CustomError, tools::Tool}};
-use std::{fmt::Debug, fs::{self, DirEntry, File, create_dir_all}, io::{self, Read}, str::FromStr, vec};
-use azure_core::{http::Url, time::OffsetDateTime};
+use crate::{error, info, lib::{
+    aurr_core::LocalResource, error::CustomError, logging, tools::Tool}};
+
+use async_recursion::async_recursion;
+use std::{fmt::Debug, fs::{self, File}, io::{Read},};
+use azure_core::{
+    credentials::Secret, time::{Duration, OffsetDateTime}
+};
 use azure_storage_blobs::
-    {blob::{Blob, operations::PutBlobResponse}, 
+    {blob::{Blob}, 
         container::Container, 
         prelude::*
     };
-
-use azure_storage::prelude::*;
-use tokio::runtime::{self, Runtime};
-use futures::{future, stream::StreamExt};
+use azure_storage::{prelude::*, shared_access_signature::service_sas::BlobSharedAccessSignature};
+use futures::{stream::StreamExt};
 use serde::{Deserialize};
 
-
-
-//enum to structure local resources
-pub enum LocalResource {
-    Text(String),
-    Entry(DirEntry),
-    Tool(Tool)
-}
-
-pub enum CloudResource{
+/// Enum to store the different types of blobs  
+pub enum AzureCloudResource{
     Text(String),
     Blob(Blob),
     BlobClient(azure_storage_blobs::prelude::BlobClient)
 }
 
-impl CloudResource{
+impl AzureCloudResource{
 
     pub fn get_blobclient(&self, cc:ContainerClient) -> BlobClient{
-        //Function to get a blobclient for a CloudResource. 
+        //Function to get a blobclient for a AzureCloudResource. 
         //Need ContainerClient
 
         match self{
-            CloudResource::Blob(blob) => cc.blob_client(blob.name.clone()),
-            CloudResource::Text(s) => cc.blob_client(s),
-            CloudResource::BlobClient(_bc) => _bc.clone(),
+            AzureCloudResource::Blob(blob) => cc.blob_client(blob.name.clone()),
+            AzureCloudResource::Text(s) => cc.blob_client(s),
+            AzureCloudResource::BlobClient(_bc) => _bc.clone(),
         }
     }
 
+    pub fn get_name(&self) -> &str{
+        match self {
+            AzureCloudResource::Text(s) => s,
+            AzureCloudResource::Blob(b) => &b.name,
+            AzureCloudResource::BlobClient(bc) => bc.blob_name()
+            
+        }
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -53,7 +55,8 @@ pub struct Config{
     upload_dir:String,
 }
 
- ///Wrapper Structure for the azure mgmt and core features     
+ ///Wrapper Structure for the azure mgmt and core features
+ /// Should handle all the core features targeting azure-cloud. 
  pub struct AzureStorageMgmt{
     ///Structure for the azure 
     account_name:String, 
@@ -70,6 +73,7 @@ impl AzureStorageMgmt {
 
             Err(e) => {
                 error!("Could not create storage credentials due to: {}",e );
+                Err(CustomError::GenericError(format!("{:?}",e)))
             },
             Ok(s) => {
                 return Ok(AzureStorageMgmt { 
@@ -78,6 +82,25 @@ impl AzureStorageMgmt {
                     bsc : BlobServiceClient::new(account_storage_name.to_string(), s)
                 })}
         }
+    }
+
+    /// 
+    /// Using the access key several times here -> not ideally
+    /// But if it works it works -> fix later >:)
+    /// 
+     
+    pub fn from_access_key(account_storage_name:&str, key:&str) -> Result<AzureStorageMgmt, Box<dyn std::error::Error>>{
+        Ok(
+            AzureStorageMgmt{
+                account_name : account_storage_name.to_string(),
+                creds : StorageCredentials::access_key(account_storage_name, key.to_string()),
+                bsc : BlobServiceClient::new(account_storage_name.to_string(), StorageCredentials::access_key(account_storage_name, key.to_string()))
+            }
+        )
+    }
+
+    pub async fn check_connection(&self){
+
     }
 
     pub async fn list_containers(&self) -> Result<Vec<Container>,CustomError>{
@@ -204,8 +227,58 @@ impl AzureStorageMgmt {
         Ok(())
     }
 
-    pub async fn gen_resource_token(&self, container:&str, t_resource:CloudResource, perm:&str) {
-        //Function to provide a acess token to some cloud resource
+    /// Function to upload a local resource to the cloud. 
+    /// It is important that this is tracked.
+    /// 
+    #[async_recursion]
+    pub async fn upload_resource(&self, localresource:&LocalResource, blob_name:&str, container:&str, overwrite:bool) -> Result<(), Box<dyn std::error::Error>>{
+        //Function to upload a filesystem resource to a container. 
+        match localresource{
+            
+            LocalResource::Entry(resource) => {
+                let blob_name = resource.file_name().into_string().unwrap();
+
+                let mut data_vec:Vec<u8> = Vec::new();
+
+                let mut f: File = File::open(resource.path()).unwrap();
+
+                f.read_to_end(&mut data_vec).unwrap();
+
+                self
+                    .upload(container, &blob_name, data_vec, overwrite)
+                    .await
+                    .unwrap();
+             },
+            
+            LocalResource::Text(s) => {
+                let mut f = File::open(s).unwrap();
+
+                let mut content:Vec<u8> = Vec::new();
+                f.read_to_end(&mut content).unwrap();
+
+                self
+                    .upload(container, blob_name, content, overwrite)
+                    .await
+                    .unwrap();
+
+            }
+
+            LocalResource::Tool(tool) => {
+                self.upload_resource(&LocalResource::Text(tool.localpath.to_string()), blob_name, container , overwrite).await;
+            }
+
+        }
+
+        Ok(())
+
+    }
+
+
+    ///Function to generate a sas-token for a specific cloud resource.
+    ///     -> Very scary function. Use with care 
+    /// 
+    pub async fn gen_sas_token(&self, container:&str, t_resource:&AzureCloudResource, perm:BlobSasPermissions, timeout:u8) -> Option<BlobSharedAccessSignature>{
+        
 
         //Get the container client
         let cc = self.get_container_client(container, true).await.unwrap();
@@ -213,26 +286,37 @@ impl AzureStorageMgmt {
         //Getting the blob_client for the target resource in this containere
         let bc = t_resource.get_blobclient(cc);
 
-        let sas = bc.shared_access_signature(
-            BlobSasPermissions { 
-                    read: true, 
-                    add: false, 
-                    create: false, 
-                    write: false, 
-                    delete: false, 
-                    delete_version: false, 
-                    permanent_delete: false, 
-                    list: true, 
-                    tags: false, 
-                    move_: false, 
-                    execute: false, 
-                    ownership: false, 
-                    permissions: false }, 
-                OffsetDateTime::now_utc().replace_hour(12).unwrap()).await.unwrap();
+        
 
-        println!("{:?}",sas.token());
+        match bc.shared_access_signature(perm,OffsetDateTime::now_utc() + Duration::hours(timeout.into())).await{
+            Ok(sas) => Some(sas),
+            Err(e) => {
+                error!("Could not produce SAS token due to{}",e);
+                None}
+        }
     }
 
+    pub async fn get_blob_download_url(&self, container:&str, t_resource:AzureCloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>{
+
+        let sas_token = self.gen_sas_token(container, &t_resource,BlobSasPermissions {
+            read: true,
+            add: false,
+            create: false,
+            write: false,
+            delete: false,
+            delete_version: false,
+            permanent_delete: false,
+            list: false,
+            tags: false,
+            move_: false,
+            execute: false,
+            ownership: false,
+            permissions: false,
+        }, timeout).await.unwrap();
+
+        Ok(format!("https://{}.blob.core.windows.net/{}/{}?{}", self.account_name, container, t_resource.get_name(), sas_token.token().unwrap()))
+
+    }
 }
 
 pub struct CloudBasedFetchExecuteMngr{
@@ -308,49 +392,7 @@ impl CloudBasedFetchExecuteMngr {
             },
             Err(e) => println!("{:#?}", e),
         }
-    }
-
-    pub async fn upload_resource(&self, localresource:LocalResource, blob_name:&str, container:&str, overwrite:bool){
-        //Function to upload a filesystem resource to a container. 
-        match localresource{
-            LocalResource::Entry(resource) => {
-                let blob_name = resource.file_name().into_string().unwrap();
-
-                let mut data_vec:Vec<u8> = Vec::new();
-
-                let mut f = File::open(resource.path()).unwrap();
-
-                f.read_to_end(&mut data_vec).unwrap();
-
-                self.azure_mgmt
-                    .upload(container, &blob_name, data_vec, overwrite)
-                    .await
-                    .expect("could not upload blob");
-             },
-            
-            LocalResource::Text(s) => {
-
-                let mut f = File::open(s).unwrap();
-                let mut content:Vec<u8> = Vec::new();
-                f.read(&mut content).unwrap();
-
-                self.azure_mgmt
-                    .upload(container, blob_name, content, overwrite)
-                    .await
-                    .expect("could not upload blob");
-
-            }
-
-            LocalResource::Tool(tool) => {todo!()}
-
-        }
-
-    }
-
-    pub async fn create_resource_access(&self, t_resource:CloudResource){
-        
-
-    }     
+    }    
 
 }
 
