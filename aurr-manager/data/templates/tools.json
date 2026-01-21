@@ -1,10 +1,26 @@
 [
     {
-        "name" : "test",
+        "name" : "Surge-Collect",
+        "Task" : "memory",
         "author" : "Jonas Sørensen",
+        "config_tag" : "SURGE",
         "localpath" : "/home/cyfjonass/aurr/aurr-manager/data/tools/Surge-Collect.txt",
+        "mandatory_steps" : null,
         "call" : {
-        "Default_Windows_Upload_Azure" : ["Surge-Collect.exe", "SURGE_COLLECT_PASSWORD", "SURGE_AZURE_STORAGE_ACCOUNT", "--sas-token=SURGE-SAS-TOKEN"]
+            "Default_Windows_Upload_Azure" : ["Surge-Collect.exe", "SURGE_COLLECT_PASSWORD", "SURGE_AZURE_STORAGE_ACCOUNT", "--sas-token=SURGE-SAS-TOKEN"],
+            "Default_Windows" : ["Surge-Collect.exe", "SURGE_COLLECT_PASSWORD","DEFAULT_DUMP_PATH_WINDOWS"]
+        }
+    },
+
+    {
+        "name" : "Kape via Powershell",
+        "Task" : "triage",
+        "author" :"Jonas Sørensen",
+        "config_tag": "KAPE",
+        "localpath" : "/home/cyfjonass/aurr/aurr-manager/data/tools/kape.zip",
+        "mandatory_steps" : ["Expand-Archive -Path kape.zip -DestinationPath KAPE_UNPACK_DIR"], 
+        "call" : {
+            "Default_Windows_Upload_Azure" : ["KAPE_UNPACK_DIR\\kape.exe", "KAPE_STANDARD_TRIAGE_ARGUMENTS"]
         }
     }
 ]

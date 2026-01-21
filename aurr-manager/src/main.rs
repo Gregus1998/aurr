@@ -3,12 +3,15 @@ mod lib;
 //Imports:
 use lib::aurr_core::AurrCore;
 use lib::azure;
+use lib::template::*;
 use lib::logging::Logger;
 use config::{Config, File, FileFormat};
 use once_cell::sync::Lazy;
 use lib::tools::{Tool,ToolConfig};
 use std::env;
 use std::io::{self, Write};
+
+use crate::lib::template;
 
 
 
@@ -44,18 +47,27 @@ async fn main() {
     ));
 
 
-    let tools = Tool::load_from_json::<Tool>("data/templates/tools.json").unwrap();
+    let mut tools = Tool::load_from_json::<Tool>("data/templates/tools.json").unwrap();
 
+    let case = template::CaseTemplate::load_from_json("/home/cyfjonass/aurr/aurr-manager/data/templates/case_template.json");
+
+    //let tasks = case.unwrap().build_task_list(tools.clone(), &config);
+    let aurr = AurrCore::new_from_ac(&config);
+
+    aurr.tmp_name(&mut tools, case.unwrap().clone(), &config).await.unwrap();
+
+    
+    /*
     let mut toolconfig:ToolConfig = ToolConfig::new();
     toolconfig.search_other_config(config.clone(), "SURGE");
-    toolconfig.add("SURGE-SAS-TOKEN".to_string(), "ABCDEFG".to_string());
-
+    toolconfig.add("SURGE-SAS-TOKEN".to_string(), "ABCDEFG".to_string()); 
     let aurr = AurrCore::new_from_ac(&config);
 
     aurr.upload_tool(tools.get("test").cloned().unwrap()).await.unwrap();
 
-    let a = aurr.get_mgmr().as_azure().unwrap().get_blob_download_url("tools", azure::AzureCloudResource::Text("test".to_string()),10).await;
+    let b = aurr.get_mgmr().as_azure().unwrap().list_blobs("tools").await;
+    let a = aurr.get_mgmr().as_azure().unwrap().get_blob_download_url("tools", azure::AzureCloudResource::Text("kape.zip".to_string()),10).await;
 
     println!("{:?}",a.unwrap())
-    
+    */
 }

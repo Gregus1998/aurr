@@ -1,14 +1,16 @@
-use crate::{impl_has_name, 
-    lib::aurr_core::{
+use crate::{error, impl_has_name, lib::{aurr_core::{
         HasName,
-        load_json_hashmap
-    }};
-use azure_core::error;
+        load_json_hashmap,
+        load_manyjson_hashmap_by_name}, 
+    cloud_storage_managers::{CloudServiceManager,CloudServiceManagerTrait}}
+};
+
 use config::{Config, Value};
 use serde::de::DeserializeOwned;
+use tracing::info;
 
 //Module to handle the setup of all tools. 
-use std::collections::HashMap;
+use std::{char::ToLowercase, clone, collections::HashMap};
 
 #[derive(serde::Deserialize, Debug, Clone)]
 pub struct ToolConfig{
@@ -31,7 +33,12 @@ impl ToolConfig {
     
     pub fn add(&mut self, key:String, val:String){
         self.config.insert(key, val);
+    }
 
+    pub fn from_config_by_tag(config:Config, tag:&str) -> Option<ToolConfig>{
+        let mut t = ToolConfig::new();
+        t.search_other_config(config, tag);
+        Some(t)
     }
 }
 
@@ -40,6 +47,8 @@ pub struct Tool{
     pub name:String,
     pub author: String,
     pub localpath:String,
+    pub config_tag:String,
+    pub mandatory_steps:Option<Vec<String>>,
     pub call:HashMap<String,Vec<String>>
 }
 
@@ -51,12 +60,14 @@ impl Tool {
     where
         T: DeserializeOwned + HasName + Clone,
     {
-        load_json_hashmap(path)
+        load_manyjson_hashmap_by_name(path)
     }
 
+    /// 
     /// Function to get a specific command line for a tool based on a call_key. 
     /// To define call keys, edit the specific template. 
-    pub fn get_cmdline(&self, call_key:&str, tool_config:ToolConfig) -> Option<String>{
+    /// 
+    pub fn get_cmdline(&self, call_key:&str, tool_config:&ToolConfig) -> Option<String>{
         match self.call.get(call_key) {
             Some(entry) =>{
                 let mut cmdline = entry.join(" ");
@@ -69,4 +80,58 @@ impl Tool {
             None => None
         }
     }
+
+    ///
+    /// Function to return the mandatory steps to be done. 
+    /// Plann to add support for a big set of features here.
+    /// Default now is a set of cmdline to be executed before the main cmdline.
+    /// 
+    pub fn get_mandatory_step(&self, tool_config:&ToolConfig) -> Option<Vec<String>>{
+        
+        match &self.mandatory_steps {
+            None => None,
+            Some(s) => {
+                let mut steps = s.clone();
+
+                //For all substeps, replace by Config
+                for (i,v) in tool_config.config.iter(){
+                    for ss in steps.iter_mut(){
+                        *ss = ss.replace(i, v);
+                    }
+                }
+                Some(steps)
+            }
+        
+        }
+    }
+
+
+    /// 
+    /// A function to "cloudify a given tool"
+    /// Pass a cloud manager to the tool and it will pipe the tool up in cloud and generate a URL
+    /// Only support for AZURE at the moment
+    /// 
+    pub async fn cloudify(&mut self, cloud_manager:&CloudServiceManager, config:&Config) -> Result<String, Box<dyn std::error::Error>>{
+        
+        let cp = config.get::<String>("AZURE_TOOLS_CONTAINER_NAME").unwrap();
+
+        let cr = match cloud_manager.upload(super::aurr_core::LocalResource::Tool(self.clone()), &cp).await{
+            
+            Ok(t) => {
+                info!("Uploaded tool: {} to Cloud",t.as_azure().unwrap().get_name());
+                t
+            },
+            
+            Err(e) => {
+                error!("Could not upload tool: {} due to: {}",self.name, e);
+                return Err(format!("Could not upload tool: {} due to: {}",self.name, e).into());
+            }
+
+        };
+
+        let url = cloud_manager.grant_read_access(cr, config.get::<u8>("READ_VALIDITY_TIMEOUT").unwrap()).await.unwrap();
+
+        Ok(url)
+    }
+
 }

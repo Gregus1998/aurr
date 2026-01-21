@@ -6,6 +6,7 @@ use crate::lib::{
 use config::Config;
 use futures::future::ok;
 use serde::de::DeserializeOwned;
+use tracing::error;
 use std::{
     collections::HashMap,
     fs
@@ -19,10 +20,16 @@ use std::{
 pub enum CloudResource {
     AZURE(AzureCloudResource)   
 }
+impl CloudResource {
 
-
-
-
+    pub fn as_azure(&self) -> Option<&AzureCloudResource>{
+        match self {
+            CloudResource::AZURE(azure) => Some(azure),
+            _ => None
+            
+        }
+    }
+}
 
 ///
 /// Enum to store all possible cloud storage managers. 
@@ -36,38 +43,29 @@ pub enum CloudServiceManager{
 }
 
 pub trait CloudServiceManagerTrait {
-    async fn upload(&self, resource:LocalResource, some_cloud_storage_path:&str) -> Result<(), Box<dyn std::error::Error>>;
-    async fn grant_access(&self, cloud_resource:CloudResource) -> Result<(), Box<dyn std::error::Error>>;
+    async fn upload(&self, resource:LocalResource, some_cloud_storage_path:&str) -> Result<CloudResource, Box<dyn std::error::Error>>;
+    async fn grant_read_access(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>;
 }
 
 
-///This implement should be moved to azure.rs
-impl CloudServiceManagerTrait for AzureStorageMgmt {
-
-    async fn upload(&self, resource:LocalResource, some_cloud_storage_path:&str) -> Result<(), Box<dyn std::error::Error>> {
-        self.upload_resource(&resource, &resource.get_name(),some_cloud_storage_path, true).await
-    }
-
-    async fn grant_access(&self, cloud_resource:CloudResource) -> Result<(), Box<dyn std::error::Error>>{
-        //self.gen_resource_token(cloud_resource, t_resource, perm);
-        todo!("Do something here ");
-        Ok(())
-    }
-}
-
+///
+/// Implementation of CloudServiceManager
+/// Mainly this will be a wrapper and forking all the different calls for different cloud managers. 
+///     -> Looks unnecessary since there are only support of azure atm
+/// 
 impl CloudServiceManagerTrait for CloudServiceManager{
 
-    async fn upload(&self, resource:LocalResource, some_cloud_storage_path:&str) -> Result<(), Box<dyn std::error::Error>> {
+    async fn upload(&self, resource:LocalResource, some_cloud_storage_path:&str) -> Result<CloudResource, Box<dyn std::error::Error>> {
         match self{
-            CloudServiceManager::Azure(asm) => asm.upload_resource(&resource, &resource.get_name(),some_cloud_storage_path, true).await
+            CloudServiceManager::Azure(asm) => Ok(
+                CloudResource::AZURE(
+                    asm.upload_resource(&resource, &resource.get_name(),some_cloud_storage_path, true).await.unwrap()))
         }
     }
 
-    async fn grant_access(&self, cloud_resource:CloudResource) -> Result<(), Box<dyn std::error::Error>> {
-        
-        match self {
-            CloudServiceManager::Azure(asm) => Ok(())
-            
+    async fn grant_read_access(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>> {
+        match self{
+            CloudServiceManager::Azure(asm) => asm.grant_read_access(cloud_resource,timeout).await
         }
     }
 }
@@ -87,6 +85,31 @@ impl CloudServiceManager {
         match self{
             CloudServiceManager::Azure(a) => Some(a),
             _ => None
+        }
+    }
+}
+
+
+///This implement should be moved to azure.rs
+impl CloudServiceManagerTrait for AzureStorageMgmt {
+
+    async fn upload(&self, resource:LocalResource, some_cloud_storage_path:&str) -> Result<CloudResource, Box<dyn std::error::Error>> {
+        Ok(
+            CloudResource::AZURE(
+                self.upload_resource(&resource, &resource.get_name(),some_cloud_storage_path, true).await.unwrap()
+        ))
+    }
+
+    async fn grant_read_access(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>{
+        
+        match cloud_resource{
+            CloudResource::AZURE(acr) => {
+                self.get_blob_download_url(None, acr, timeout).await
+            },
+            _ => {
+                error!("Passed wrong cloud resource type to azure");
+                return Err("Wrong cloud resource type".into());
+            }
         }
     }
 }

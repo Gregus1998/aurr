@@ -28,7 +28,6 @@ impl AzureCloudResource{
     pub fn get_blobclient(&self, cc:ContainerClient) -> BlobClient{
         //Function to get a blobclient for a AzureCloudResource. 
         //Need ContainerClient
-
         match self{
             AzureCloudResource::Blob(blob) => cc.blob_client(blob.name.clone()),
             AzureCloudResource::Text(s) => cc.blob_client(s),
@@ -103,9 +102,12 @@ impl AzureStorageMgmt {
 
     }
 
+    ///
+    /// Function to return a vector of asure storage account containers.
+    /// 
     pub async fn list_containers(&self) -> Result<Vec<Container>,CustomError>{
 
-        ///Function to return a vector of asure storage account containers.
+        
 
         let blob_service_client =  BlobServiceClient::new(self.account_name.clone(),self.creds.clone()); 
 
@@ -120,9 +122,10 @@ impl AzureStorageMgmt {
         Ok(containers)
     } 
 
+    ///
+    /// Function to create a new container in the storage account
+    /// 
     pub async fn create_container(&self, container_name:&str) -> Result<ContainerClient, CustomError>{
-
-        //Function to create a new container with the given provided container_name:&str
 
         let container_client = self.bsc.container_client(container_name);
 
@@ -132,9 +135,10 @@ impl AzureStorageMgmt {
         }
     }
 
+    ///
+    /// Function to delete a container by name. If wrong name -> error
+    /// 
     pub async fn delete_container(&self, container_name:&str) -> Result<(), CustomError>{
-
-        //Function to delete a container by name. If wrong name -> error
 
         match self.get_container_client(container_name, false).await{
             Ok(cc) => {
@@ -206,7 +210,7 @@ impl AzureStorageMgmt {
 
     }
 
-    pub async fn upload(&self, container_name:&str, blob_name:&str, blob_data:Vec<u8>, overwrite:bool) -> Result<(), CustomError>{
+    pub async fn upload(&self, container_name:&str, blob_name:&str, blob_data:Vec<u8>, overwrite:bool) -> Result<AzureCloudResource, CustomError>{
 
         //Function to upload any data:Vec<u8> to a blob in a container
 
@@ -224,14 +228,15 @@ impl AzureStorageMgmt {
 
         let a = bc.put_block_blob(blob_data).await.unwrap();
 
-        Ok(())
+        Ok(AzureCloudResource::BlobClient(bc))
     }
 
     /// Function to upload a local resource to the cloud. 
     /// It is important that this is tracked.
+    /// Returns a Result<AzoureCloudResource> (BC)
     /// 
     #[async_recursion]
-    pub async fn upload_resource(&self, localresource:&LocalResource, blob_name:&str, container:&str, overwrite:bool) -> Result<(), Box<dyn std::error::Error>>{
+    pub async fn upload_resource(&self, localresource:&LocalResource, blob_name:&str, container:&str, overwrite:bool) -> Result<AzureCloudResource, Box<dyn std::error::Error>>{
         //Function to upload a filesystem resource to a container. 
         match localresource{
             
@@ -244,10 +249,11 @@ impl AzureStorageMgmt {
 
                 f.read_to_end(&mut data_vec).unwrap();
 
-                self
+                let bc = self
                     .upload(container, &blob_name, data_vec, overwrite)
                     .await
                     .unwrap();
+                Ok(bc)
              },
             
             LocalResource::Text(s) => {
@@ -256,30 +262,28 @@ impl AzureStorageMgmt {
                 let mut content:Vec<u8> = Vec::new();
                 f.read_to_end(&mut content).unwrap();
 
-                self
+                let bc = self
                     .upload(container, blob_name, content, overwrite)
                     .await
                     .unwrap();
 
-            }
+                Ok(bc)
+
+            },
 
             LocalResource::Tool(tool) => {
-                self.upload_resource(&LocalResource::Text(tool.localpath.to_string()), blob_name, container , overwrite).await;
+                self.upload_resource(&LocalResource::Text(tool.localpath.to_string()), blob_name, container , overwrite).await
             }
 
         }
 
-        Ok(())
-
     }
-
 
     ///Function to generate a sas-token for a specific cloud resource.
     ///     -> Very scary function. Use with care 
     /// 
     pub async fn gen_sas_token(&self, container:&str, t_resource:&AzureCloudResource, perm:BlobSasPermissions, timeout:u8) -> Option<BlobSharedAccessSignature>{
         
-
         //Get the container client
         let cc = self.get_container_client(container, true).await.unwrap();
 
@@ -296,26 +300,39 @@ impl AzureStorageMgmt {
         }
     }
 
-    pub async fn get_blob_download_url(&self, container:&str, t_resource:AzureCloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>{
+    pub async fn get_blob_download_url(&self, container:Option<&str>, t_resource:AzureCloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>{
 
-        let sas_token = self.gen_sas_token(container, &t_resource,BlobSasPermissions {
-            read: true,
-            add: false,
-            create: false,
-            write: false,
-            delete: false,
-            delete_version: false,
-            permanent_delete: false,
-            list: false,
-            tags: false,
-            move_: false,
-            execute: false,
-            ownership: false,
-            permissions: false,
-        }, timeout).await.unwrap();
+        match &t_resource{
+            AzureCloudResource::BlobClient(bc) => {
+                
+                let con = bc.container_client().container_name();
+                
+                let sas_token = self.gen_sas_token(con, &t_resource,BlobSasPermissions {
+                        read: true,
+                        add: false,
+                        create: false,
+                        write: false,
+                        delete: false,
+                        delete_version: false,
+                        permanent_delete: false,
+                        list: false,
+                        tags: false,
+                        move_: false,
+                        execute: false,
+                        ownership: false,
+                        permissions: false,
+                        }, timeout)
+                    .await.unwrap();
 
-        Ok(format!("https://{}.blob.core.windows.net/{}/{}?{}", self.account_name, container, t_resource.get_name(), sas_token.token().unwrap()))
+        Ok(format!("https://{}.blob.core.windows.net/{}/{}?{}", self.account_name, con, t_resource.get_name(), sas_token.token().unwrap()))
 
+
+
+            }
+            _ => return Err("Provided AzureCloudResource not supported yet".into())
+        }
+
+        
     }
 }
 

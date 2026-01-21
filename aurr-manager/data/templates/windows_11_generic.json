@@ -1,8 +1,12 @@
+
 {
-    "Name" : "Windows 11 Generic",
-    "OS" : "Windows",
-    "Tasks" : {
-        "Memory" : ["Default"],
-        "Triage" : ["Default"]
+    "name" : "Windows 11 MemoryDump Azure Cloud",
+    "os" : "Windows",
+    "shell" : "powershell",
+    "tasks" : {
+        "1 memory" : {"Surge-Collect" : ["Default_Windows_Upload_Azure", "Default_Windows"]},
+        "2 triage" : {"Kape via Powershell" : ["Default_Windows_Upload_Azure"]},
+        "3 disk" : null,
+        "4 other" : null
     }
 }

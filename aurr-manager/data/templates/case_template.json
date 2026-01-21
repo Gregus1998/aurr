@@ -1,0 +1,5 @@
+{
+    "name" : "TestCaseNAme",
+    "hostname" : "Hostname",
+    "task_template" : "data/templates/windows_11_generic.json"
+}
