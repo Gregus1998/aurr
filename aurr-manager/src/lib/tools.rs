@@ -8,9 +8,15 @@ use crate::{error, impl_has_name, lib::{aurr_core::{
 use config::{Config, Value};
 use serde::de::DeserializeOwned;
 use tracing::info;
+use std::str::FromStr;
 
 //Module to handle the setup of all tools. 
 use std::{char::ToLowercase, clone, collections::HashMap};
+
+pub enum MandatorySteps{
+    Generate,
+    Target
+}
 
 #[derive(serde::Deserialize, Debug, Clone)]
 pub struct ToolConfig{
@@ -48,7 +54,7 @@ pub struct Tool{
     pub author: String,
     pub localpath:String,
     pub config_tag:String,
-    pub mandatory_steps:Option<Vec<String>>,
+    pub mandatory_steps:Option<HashMap<String,Vec<String>>>,
     pub call:HashMap<String,Vec<String>>
 }
 
@@ -65,7 +71,11 @@ impl Tool {
 
     /// 
     /// Function to get a specific command line for a tool based on a call_key. 
-    /// To define call keys, edit the specific template. 
+    /// To define call keys, edit the specific template.
+    /// Replaces each and every instanse of entries in the "tool_config" forthe final cmdlines:
+    /// Config:
+    ///     "EKSAMPLE_CONFIG" => "VARIABLE"
+    /// "some cmdline that contains EKSAMPLE_CONFIG" => "some cmdline that contains VARIABLE" 
     /// 
     pub fn get_cmdline(&self, call_key:&str, tool_config:&ToolConfig) -> Option<String>{
         match self.call.get(call_key) {
@@ -84,9 +94,8 @@ impl Tool {
     ///
     /// Function to return the mandatory steps to be done. 
     /// Plann to add support for a big set of features here.
-    /// Default now is a set of cmdline to be executed before the main cmdline.
     /// 
-    pub fn get_mandatory_step(&self, tool_config:&ToolConfig) -> Option<Vec<String>>{
+    pub fn get_mandatory_step(&self, tool_config:&ToolConfig) -> Option<Vec<>>{
         
         match &self.mandatory_steps {
             None => None,

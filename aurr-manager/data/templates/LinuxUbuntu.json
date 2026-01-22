@@ -1,0 +1,11 @@
+{
+    "name" : "Ubuntu Linux Generic Template",
+    "os" : "Linux Ubuntu",
+    "shell" : "Powershell",
+    "tasks" : {
+        "1 memory" : {"forensicstool" : ["Default_Forensicstool_Call"]},
+        "2 triage" : null,
+        "3 disk" : null,
+        "4 other" : null
+    }
+}

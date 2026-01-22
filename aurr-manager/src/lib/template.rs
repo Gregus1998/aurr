@@ -30,7 +30,7 @@ pub struct CaseTemplate{
 #[derive(serde::Deserialize, Debug, Clone)]
 pub struct TaskTemplate {
     name : String,
-    os : String,
+    pub os : String,
     pub shell :String,
     tasks : HashMap<String, Option<HashMap<String,Vec<String>>>> //Cursed nested structure >:()
 }
@@ -84,7 +84,8 @@ impl TaskTemplate {
 
     ///
     /// Function to craft the cmdlines of the tools mandarory steps and call steps.
-    ///
+    /// -> This needs to generate tokens that can be used for a specifig tool. 
+    /// 
 
     pub fn build_remote_system_task_list(&self, tools:HashMap<String,Tool>, config:&Config) -> Vec<String>{
 
@@ -134,4 +135,39 @@ impl TaskTemplate {
         res
     }
 
+    ///
+    /// Function to filter a hashmap of tools only by relevant tools
+    /// 
+    pub fn get_relevant_tools(&self, tools:&mut HashMap<String,Tool>) -> HashMap<String,Tool>{
+
+        let mut rt:Vec<String> = Vec::new();
+
+        //Function to extract the tool name of those to be used.
+        //Alot of nested stuf since task:hashmap points to a hashmap of other tools and config to use. 
+        for (i,v) in self.tasks.iter(){
+            match v{
+                Some(map) => {
+                    for k in map.keys(){
+                        rt.push(k.clone());
+                    }
+                },
+                None => continue
+            }
+        }
+
+        let mut new_map:HashMap<String,Tool> = HashMap::new();
+
+        for keys in rt.iter(){
+
+            match tools.get(keys) {
+                None => {error!("Configured tool: {} does not exist. Add it with correct name in the 'tools file'", keys)},
+                Some(tool) => {
+                    new_map.insert(keys.clone(), tool.clone());
+                }
+            };
+        }
+
+        new_map
+
+    }
 }

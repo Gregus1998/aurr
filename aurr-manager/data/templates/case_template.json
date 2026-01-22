@@ -1,5 +1,5 @@
 {
     "name" : "TestCaseNAme",
     "hostname" : "Hostname",
-    "task_template" : "data/templates/windows_11_generic.json"
+    "task_template" : "/home/cyfjonass/aurr/aurr-manager/data/templates/windows_11_generic.json"
 }

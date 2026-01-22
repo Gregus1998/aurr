@@ -1,6 +1,6 @@
 // Library to store all azure structs and functions. 
 use crate::{error, info, lib::{
-    aurr_core::LocalResource, error::CustomError, logging, tools::Tool}};
+    aurr_core::LocalResource, error::CustomError, logging, tools::Tool}, warning};
 
 use async_recursion::async_recursion;
 use std::{fmt::Debug, fs::{self, File}, io::{Read},};
@@ -282,15 +282,13 @@ impl AzureStorageMgmt {
     ///Function to generate a sas-token for a specific cloud resource.
     ///     -> Very scary function. Use with care 
     /// 
-    pub async fn gen_sas_token(&self, container:&str, t_resource:&AzureCloudResource, perm:BlobSasPermissions, timeout:u8) -> Option<BlobSharedAccessSignature>{
+    pub async fn gen_blob_sas_token(&self, container:&str, t_resource:&AzureCloudResource, perm:BlobSasPermissions, timeout:u8) -> Option<BlobSharedAccessSignature>{
         
         //Get the container client
         let cc = self.get_container_client(container, true).await.unwrap();
 
         //Getting the blob_client for the target resource in this containere
         let bc = t_resource.get_blobclient(cc);
-
-        
 
         match bc.shared_access_signature(perm,OffsetDateTime::now_utc() + Duration::hours(timeout.into())).await{
             Ok(sas) => Some(sas),
@@ -300,14 +298,53 @@ impl AzureStorageMgmt {
         }
     }
 
+    ///
+    /// Function to generate a sas-tokoen for a container
+    /// 
+    pub async fn gen_container_sas_token(&self, container:&str, perm:BlobSasPermissions, timeout:u8) -> Option<BlobSharedAccessSignature>{
+        
+        //Get the container client
+        let cc = self.get_container_client(container, true).await.unwrap();
+
+        match cc.shared_access_signature(perm,OffsetDateTime::now_utc() + Duration::hours(timeout.into())).await{
+            Ok(sas) => Some(sas),
+            Err(e) => {
+                error!("Could not produce SAS token due to{}",e);
+                None}
+        }
+    }
+
+    ///
+    /// Function to generae a sas token for a given container
+    pub async fn gen_upload_container_sas(&self, container:&str, timeout:u8)  -> Result<String, Box<dyn std::error::Error>>{
+        let perm = BlobSasPermissions {
+                        read: true,
+                        add: true,
+                        create: true,
+                        write: true,
+                        delete: true,
+                        delete_version: false,
+                        permanent_delete: false,
+                        list: true,
+                        tags: true,
+                        move_: true,
+                        execute: false,
+                        ownership: false,
+                        permissions: false,
+                        };
+        
+        warning!("Generating a SAS-TOKEN for container: {}\n PERM: {}\n Timeout: UTC +{} Hours", container, perm, timeout);
+        
+        let sas_token = self.gen_container_sas_token(container,perm, timeout)
+                    .await.unwrap();
+        
+        Ok(sas_token.token().unwrap())
+}
+
     pub async fn get_blob_download_url(&self, container:Option<&str>, t_resource:AzureCloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>{
 
-        match &t_resource{
-            AzureCloudResource::BlobClient(bc) => {
-                
-                let con = bc.container_client().container_name();
-                
-                let sas_token = self.gen_sas_token(con, &t_resource,BlobSasPermissions {
+        //Defining the sas token
+        let sas_token = self.gen_blob_sas_token(container.unwrap(), &t_resource,BlobSasPermissions {
                         read: true,
                         add: false,
                         create: false,
@@ -324,10 +361,15 @@ impl AzureStorageMgmt {
                         }, timeout)
                     .await.unwrap();
 
-        Ok(format!("https://{}.blob.core.windows.net/{}/{}?{}", self.account_name, con, t_resource.get_name(), sas_token.token().unwrap()))
+        match &t_resource{
+            AzureCloudResource::BlobClient(bc) => {
+                
+                Ok(format!("https://{}.blob.core.windows.net/{}/{}?{}", self.account_name, container.unwrap(), t_resource.get_name(), sas_token.token().unwrap()))
+            }
 
-
-
+            AzureCloudResource::Text(blob_name) => {
+                Ok(format!("https://{}.blob.core.windows.net/{}/{}?{}", self.account_name, container.unwrap(), t_resource.get_name(), sas_token.token().unwrap()))
+        
             }
             _ => return Err("Provided AzureCloudResource not supported yet".into())
         }
