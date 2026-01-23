@@ -13,14 +13,46 @@ use std::str::FromStr;
 //Module to handle the setup of all tools. 
 use std::{char::ToLowercase, clone, collections::HashMap};
 
+
+///
+/// Placeholder for all the types of mandatory steps to be executed prior to the use of a tool. 
+/// Will support atleast: 
+///     Custom compile
+///     Cloudify
+///     Delete from cloud
+/// 
+#[derive(serde::Deserialize, Debug, Clone, PartialEq, Eq, Hash,Copy)]
 pub enum MandatorySteps{
     Generate,
     Target
 }
 
+impl FromStr for MandatorySteps {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "generate" => Ok(MandatorySteps::Generate),
+            "target" => Ok(MandatorySteps::Target),
+            _ => Err(()),
+        }
+    }
+}
+
+impl MandatorySteps{
+    pub fn as_key(&self) -> String{
+        match &self {
+            MandatorySteps::Generate => "Generate".to_string(),
+            MandatorySteps::Target => "Target".to_string(),
+        }
+    }
+}
+
+
+
 #[derive(serde::Deserialize, Debug, Clone)]
 pub struct ToolConfig{
-    config:HashMap<String,String>
+    pub config:HashMap<String,String>
 }
 
 impl ToolConfig {
@@ -54,7 +86,7 @@ pub struct Tool{
     pub author: String,
     pub localpath:String,
     pub config_tag:String,
-    pub mandatory_steps:Option<HashMap<String,Vec<String>>>,
+    pub mandatory_steps:Option<HashMap<MandatorySteps,Vec<String>>>,
     pub call:HashMap<String,Vec<String>>
 }
 
@@ -92,28 +124,55 @@ impl Tool {
     }
 
     ///
-    /// Function to return the mandatory steps to be done. 
-    /// Plann to add support for a big set of features here.
-    /// 
-    pub fn get_mandatory_step(&self, tool_config:&ToolConfig) -> Option<Vec<>>{
-        
-        match &self.mandatory_steps {
-            None => None,
-            Some(s) => {
-                let mut steps = s.clone();
+    /// Function to return the mandatory steps to be done for a given mandatory step type. 
+    /// If there exists a set of mandatory steps for a type of mandatory steps it will return a vector:vec<String> of the
+    /// Steps. This can be changed to vec<T> to add support for more generic steps.
+    ///        
+    pub fn get_mandatory_step_by_type(&self, mandatory_step_type:MandatorySteps) -> Option<Vec<String>>{
 
-                //For all substeps, replace by Config
-                for (i,v) in tool_config.config.iter(){
-                    for ss in steps.iter_mut(){
-                        *ss = ss.replace(i, v);
-                    }
-                }
-                Some(steps)
-            }
-        
+        match self.mandatory_steps.as_ref().unwrap().get(&mandatory_step_type){
+            Some(steps ) => Some(steps.clone()),
+            None => None
         }
     }
 
+    pub fn process_mandatory_step(&self, mandatory_step_type:MandatorySteps, steps:Vec<String>, config:Option<&ToolConfig>) -> Option<Vec<String>>{
+
+        let mut cloned_steps = steps.clone();
+
+        match mandatory_step_type{
+            MandatorySteps::Generate => {
+                None
+            }
+            MandatorySteps::Target => {
+
+                for step in cloned_steps.iter_mut(){
+                    match config {
+                        Some(c) => {
+                            for (i,v) in c.config.iter(){
+                                *step = step.replace(i, v);
+                            }
+                        },
+                        None => continue
+                    }
+                };
+                Some(cloned_steps)
+            }
+        }
+
+
+
+    }
+
+    ///
+    /// A wrapper function for get_mandatory_step_by_type and process_mandatory_step
+    ///Takes self, MandatorySteps and a tool config
+    /// -> a vector of steps to de in that mandatory step context
+    /// 
+    pub fn produce_mandator_steps_by_type(&self, mandatory_step_type:MandatorySteps, config:&ToolConfig) -> Option<Vec<String>>{
+        let ms = self.get_mandatory_step_by_type(mandatory_step_type.clone()).unwrap();
+        self.process_mandatory_step(mandatory_step_type, ms, Some(config))
+    }
 
     /// 
     /// A function to "cloudify a given tool"

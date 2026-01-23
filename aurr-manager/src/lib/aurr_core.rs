@@ -1,5 +1,5 @@
 use crate::lib::{
-    azure::AzureStorageMgmt, cloud_storage_managers::{CloudResource, CloudServiceManager, CloudServiceManagerTrait}, template::CaseTemplate, tools::Tool};
+    azure::AzureStorageMgmt, cloud_storage_managers::{CloudResource, CloudServiceManager, CloudServiceManagerTrait}, template::CaseTemplate, tools::{MandatorySteps, Tool, ToolConfig}};
 
 use config::Config;
 use futures::future::ok;
@@ -373,8 +373,6 @@ impl AurrCore <'_> {
             cmds.push(down_template
                 .replace("<URL>", &url)
                 .replace("<REMOTE_TOOL_FILE_NAME>", remote_download_filename));
-
-
         }
 
 
@@ -389,6 +387,53 @@ impl AurrCore <'_> {
         Ok("sa".to_string())
     }
 
+    pub async fn process_mandatory_step(&self, tool:&Tool, config:&mut ToolConfig, ms:MandatorySteps) -> Option<Vec<String>>{
+
+        //If the function is called without any steps -> None is returned
+        let mut steps = match tool.get_mandatory_step_by_type(ms){
+            Some(s) => s,
+            None => return None
+        };
+
+        match ms{
+            MandatorySteps::Generate => {
+
+            },
+            MandatorySteps::Target => {
+                for step in steps.iter_mut(){
+                        for (i,v) in config.config.iter(){
+                                *step = step.replace(i, v);
+                            }
+                    }
+                }
+            }
+
+        Some(steps)
+    }
+
+
+    ///
+    /// Function to handle all the different processing steps for config variable generation steps. 
+    /// This finctuon should take any parameter input and produce a entry in the tool config. 
+    /// Parameter format: "<config_tag>_<somevar1>_<somevar2>_<somevar_n>" 
+    ///     Example: SURGE_SAS_TOKEN -> This will produce a enty in the config: 'SURGE_SAS-TOKEN' -> 'Some generated SAS-token'
+    /// 
+    /// For each usecase of this there need to be added a support in in this function.
+    /// This is solved with a chain of if else statements 
+    /// 
+    pub async fn generate_entry_toolconfig(&self, config:&mut ToolConfig, parameter:String) -> Result<(), Box<dyn std::error::Error>>{
+
+        //Finding the prefix of the variable
+        let prefix = parameter.split("_").collect::<Vec<&str>>().first().unwrap().to_string();
+
+        if parameter.contains("SAS-UPLOAD-TOKEN"){
+            let token = self.generate_sas_upload_token().unwrap();
+        }
+
+        Ok((()))
+
+
+    }
 
 }
 

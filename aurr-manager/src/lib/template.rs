@@ -116,7 +116,7 @@ impl TaskTemplate {
                         let toolconfig = ToolConfig::from_config_by_tag(config.clone(), &t.config_tag).unwrap();
                         
                         //For each of the mandaroty steps. If they are present. append them to the task list prior to the cmd.
-                        match t.get_mandatory_step(&toolconfig){
+                        match t.produce_mandator_steps_by_type(super::tools::MandatorySteps::Target, &toolconfig){
                             None => (),
                             Some(steps) => res.extend(steps),
                         }

@@ -22,7 +22,7 @@
         "config_tag": "KAPE",
         "localpath" : "/home/cyfjonass/aurr/aurr-manager/data/tools/kape.zip",
         "mandatory_steps" : {
-            "Temotetarget" : ["Expand-Archive -Path kape.zip -DestinationPath KAPE_UNPACK_DIR"]
+            "Target" : ["Expand-Archive -Path kape.zip -DestinationPath KAPE_UNPACK_DIR"]
         }, 
         "call" : {
             "Default_Windows_Upload_Azure" : ["KAPE_UNPACK_DIR\\kape.exe", "KAPE_STANDARD_TRIAGE_ARGUMENTS"]
