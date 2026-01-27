@@ -74,7 +74,7 @@ pub struct Config{
  /// Should handle all the core features targeting azure-cloud. 
  pub struct AzureStorageMgmt{
     ///Structure for the azure 
-    account_name:String, 
+    pub account_name:String, 
     creds: StorageCredentials,
     bsc: BlobServiceClient
 }
@@ -307,7 +307,9 @@ impl AzureStorageMgmt {
         let bc = t_resource.get_blobclient(cc).unwrap();
 
         match bc.shared_access_signature(perm,OffsetDateTime::now_utc() + Duration::hours(timeout.into())).await{
-            Ok(sas) => Some(sas),
+            Ok(sas) => {
+                info!("Generated SAS-BLOB-TOKEN for AZURE_CLOUD <{}> <{}> <{}> Timeout: UTC+{}", self.account_name, container, bc.blob_name(),timeout);
+                Some(sas)},
             Err(e) => {
                 error!("Could not produce SAS token due to{}",e);
                 None}
@@ -324,7 +326,9 @@ impl AzureStorageMgmt {
         let cc = self.get_container_client(container, true).await.unwrap();
 
         match cc.shared_access_signature(perm,OffsetDateTime::now_utc() + Duration::hours(timeout.into())).await{
-            Ok(sas) => Some(sas),
+            Ok(sas) => {
+                info!("Generated SAS-CONTAINER-TOKEN for AZURE_CLOUD <{}> <{}> Timeout: UTC+{}", self.account_name, container, timeout);
+                Some(sas)},
             Err(e) => {
                 error!("Could not produce SAS token due to{}",e);
                 None}
@@ -333,6 +337,7 @@ impl AzureStorageMgmt {
 
     ///
     /// Function to generae a sas token for a given container
+    /// 
     pub async fn gen_upload_container_sas(&self, container:&Container, timeout:u8)  -> Result<String, Box<dyn std::error::Error>>{
         let perm = BlobSasPermissions {
                         read: true,
@@ -349,8 +354,6 @@ impl AzureStorageMgmt {
                         ownership: false,
                         permissions: false,
                         };
-        
-        warning!("Generating a SAS-TOKEN for container: {}\n PERM: {}\n Timeout: UTC +{} Hours", container.name, perm, timeout);
         
         let sas_token = self.gen_container_sas_token(&container.name,perm, timeout)
                     .await.unwrap();
@@ -407,7 +410,6 @@ impl AzureStorageMgmt {
             _ => return Err("Provided AzureCloudResource not supported yet".into())
         }
 
-        
     }
 }
 

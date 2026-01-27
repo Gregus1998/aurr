@@ -262,12 +262,12 @@ pub fn load_manyjson_hashmap_by_name<T>(path:&str) -> Result<HashMap<String, T>,
 /// config: Config 
 ///     -> Some random condig file that needs to include all you need to interact with the cloud and the desired tools. 
 /// 
-pub struct AurrCore<'a> {
+pub struct AurrCore {
     cloudservicemanager: CloudServiceManager,
-    config:&'a Config
+    config:Config
 }
 
-impl AurrCore <'_> {
+impl AurrCore{
 
     pub fn new_from_sas(config:&Config) -> AurrCore{
 
@@ -278,7 +278,7 @@ impl AurrCore <'_> {
                      config.get::<String>("AZURE_SAS_TOKEN").unwrap().as_str()
                     ).unwrap()}
             ),
-            config: config
+            config: config.clone()
         }
     }
 
@@ -291,7 +291,7 @@ impl AurrCore <'_> {
                      config.get::<String>("AZURE_ACCESS_KEY").unwrap().as_str()
                     ).unwrap()}
             ),
-            config: config
+            config: config.clone()
         }
     }
 
@@ -388,16 +388,19 @@ impl AurrCore <'_> {
                 .replace("<URL>", &url)
                 .replace("<REMOTE_TOOL_FILE_NAME>", remote_download_filename));
 
-            println!("{:?}", tool_config);
             cmds.extend(case_template.build_task(tool.clone(), &tool_config));
         }
 
         cmds.extend(os.cleanup(&config));
 
         let sp = ShellParser::new(Shell::from_str(&case_template.task_template.shell).unwrap(), cmds);
-        println!("{:?}",sp.get_oneliner());
         
-        Ok("sa".to_string())
+        match sp.get_oneliner(){
+            Some(ol) => Ok(ol),
+            None => {
+                Err("Could not produce oneliner  :(".into())
+            }
+        }
     }
 
 
@@ -415,16 +418,22 @@ impl AurrCore <'_> {
 
         match ms{
             MandatorySteps::Generate => {
-
-            },
-            MandatorySteps::Target => {
+                todo!("Add support for mandatory step generate in AurrCore::process_mandatory_steps");
+                },
+           
+           MandatorySteps::Target => {
                 for step in steps.iter_mut(){
                         for (i,v) in config.config.iter(){
                                 *step = step.replace(i, v);
                             }
                     }
+                },
+           
+            MandatorySteps::Compile => {
+                todo!("Add support for mandatory step Compile in AurrCore::process_mandatory_steps");
                 }
             }
+            
 
         Some(steps)
     }

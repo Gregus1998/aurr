@@ -5,6 +5,7 @@ use crate::lib::{
 
 use azure_core::cloud;
 use config::Config;
+use crossterm::style::Stylize;
 use futures::future::ok;
 use serde::de::DeserializeOwned;
 use tracing::error;
@@ -35,6 +36,22 @@ impl CloudResource {
             CloudResource::AZURE(_) => "AZURE".to_string()
         }
     }
+
+    /// 
+    /// Function to get some random information for a cloud resource
+    /// Used to display metadata when uploading
+    /// 
+    pub fn get_info(&self) -> Option<String>{
+        match self{
+            CloudResource::AZURE(acr) => format!("{}/{}", 
+            match acr.get_container_name(){
+                Some(cn) => cn,
+                None => "N/A"
+            },
+            acr.get_name()).into(),
+            _ => None
+        }
+    }
 }
 
 ///
@@ -52,6 +69,8 @@ pub trait CloudServiceManagerTrait {
     async fn upload(&self, resource:LocalResource, some_cloud_storage_path:&str) -> Result<CloudResource, Box<dyn std::error::Error>>;
     async fn grant_read_access(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>; 
     async fn grant_upload_token(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>;
+    fn get_name(&self) -> String;
+    fn get_type(&self) -> String;
 }
 
 
@@ -80,6 +99,20 @@ impl CloudServiceManagerTrait for CloudServiceManager{
         match self{
             CloudServiceManager::Azure(asm) => asm.grant_upload_token(cloud_resource,timeout).await
         }
+    }
+
+    fn get_name(&self) -> String {
+        match self{
+            CloudServiceManager::Azure(acm) => acm.get_name()
+        }
+    }
+
+    fn get_type(&self) -> String {
+
+        match self{
+            CloudServiceManager::Azure(acm) => acm.get_type()
+        }
+        
     }
 }
 
@@ -147,5 +180,21 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
             None => return Err(format!("Provided mismatch cloud resource {} for AZURE cloud",cloud_resource.get_type()).into())
 
         }
+    }
+
+    ///
+    /// Trait function to get the name of azure storage account
+    /// Used to display info runtime
+    /// 
+    fn get_name(&self) -> String {
+        self.account_name.clone()
+    }
+
+    ///
+    /// Trait function to return "AZURE-CLOUD"
+    /// Used runtime to display information
+    /// 
+    fn get_type(&self) -> String {
+        "AZURE-CLOUD".to_string()
     }
 }

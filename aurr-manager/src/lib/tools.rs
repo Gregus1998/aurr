@@ -24,7 +24,8 @@ use std::{char::ToLowercase, clone, collections::HashMap};
 #[derive(serde::Deserialize, Debug, Clone, PartialEq, Eq, Hash,Copy)]
 pub enum MandatorySteps{
     Generate,
-    Target
+    Target,
+    Compile
 }
 
 impl FromStr for MandatorySteps {
@@ -44,6 +45,7 @@ impl MandatorySteps{
         match &self {
             MandatorySteps::Generate => "Generate".to_string(),
             MandatorySteps::Target => "Target".to_string(),
+            MandatorySteps::Compile => "Compile".to_string()
         }
     }
 }
@@ -186,6 +188,11 @@ impl Tool {
             MandatorySteps::Generate => {
                 None
             }
+
+            MandatorySteps::Compile => {
+                None
+            }
+
             MandatorySteps::Target => {
 
                 for step in cloned_steps.iter_mut(){
@@ -233,7 +240,7 @@ impl Tool {
         let cr = match cloud_manager.upload(super::aurr_core::LocalResource::Tool(self.clone()), &cp).await{
             
             Ok(t) => {
-                info!("Uploaded tool: {} to Cloud",t.as_azure().unwrap().get_name());
+                info!("Uploaded tool: {} to {}",t.as_azure().unwrap().get_name(), cloud_manager.get_type());
                 t
             },
             

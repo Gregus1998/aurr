@@ -9,7 +9,7 @@ use std::{collections::HashMap, hash::Hash, io::Error};
 use crate::{error, impl_has_name, lib::{aurr_core::{
         HasName, load_json, load_json_hashmap, load_json_vec, load_manyjson_hashmap_by_name
     }, tools::{Tool, ToolConfig}}};
-    
+
 use config::{Config, Value};
 use serde::de::DeserializeOwned;
 
@@ -20,7 +20,7 @@ use serde::de::DeserializeOwned;
 #[derive(serde::Deserialize, Debug, Clone)]
 pub struct CaseTemplate{
 
-    name : String,
+    pub name : String,
     hostname : String,
     pub task_template : TaskTemplate
 }
