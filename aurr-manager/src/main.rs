@@ -56,13 +56,7 @@ async fn main() {
     //let tasks = case.unwrap().build_task_list(tools.clone(), &config);
     let aurr = AurrCore::new_from_ac(&config);
 
-    //aurr.tmp_name(&mut tools, case.unwrap().clone(), &config).await.unwrap();
-
-    let cc = aurr.get_mgmr().as_azure().unwrap().get_container_client("tools", false).await.unwrap();
-    
-    let bc = aurr.get_mgmr().as_azure().unwrap().get_blob_download_url(Some("tools"), azure::AzureCloudResource::Text("surge-collect.exe".to_string()), 1).await.unwrap();
-
-    println!("{}",bc);
+    aurr.tools_push_execute(&mut tools, case.unwrap().clone(), &config).await.unwrap();
 
     /*
     let mut toolconfig:ToolConfig = ToolConfig::new();

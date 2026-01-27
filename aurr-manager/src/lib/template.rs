@@ -13,8 +13,6 @@ use crate::{error, impl_has_name, lib::{aurr_core::{
 use config::{Config, Value};
 use serde::de::DeserializeOwned;
 
-
-
 /// 
 /// A case structure for the case template. 
 /// The case template will mainly be the one template that needs to be edited for each individual case. 
@@ -63,8 +61,15 @@ impl CaseTemplate{
         Ok(ct)
     }
 
+    ///
+    /// Function to build a remote task list of all tools in a tools-map
+    /// 
     pub fn build_task_list(&self, tools:HashMap<String,Tool>, config:&Config) -> Vec<String>{
         self.task_template.build_remote_system_task_list(tools, config)
+    }
+
+    pub fn build_task(&self,tool:Tool, tool_config:&ToolConfig) -> Vec<String>{
+        self.task_template.build_remote_system_task(tool, tool_config)
     }
 
 
@@ -134,6 +139,48 @@ impl TaskTemplate {
 
         res
     }
+
+
+    ///
+    /// Function to build a specific task list for a given tool given a provided config
+    /// 
+    pub fn build_remote_system_task(&self,tool:Tool, tool_config:&ToolConfig) -> Vec<String>{
+        let mut res:Vec<String> = Vec::new();
+
+
+        //Sortin all the tasks in alphanumeric order.
+        let mut v:Vec<_> = self.tasks.iter().collect();
+        v.sort_by(|(a,_), (b,_)| a.cmp(b));
+
+
+        for (task,value) in v.iter(){
+
+            match value{
+                None => continue,
+                Some(task_map) => {
+
+                        //Fetching the desired tool.
+                        let callkeyss = task_map.get(&tool.name).unwrap();
+
+                        //For each of the mandaroty steps. If they are present. append them to the task list prior to the cmd.
+                        match tool.produce_mandator_steps_by_type(super::tools::MandatorySteps::Target, &tool_config){
+                            None => (),
+                            Some(steps) => res.extend(steps),
+                        }
+
+                        for key in callkeyss.iter(){
+                            let cmd = tool.get_cmdline(key, &tool_config).unwrap();
+                            res.push(cmd);
+                        } 
+                }
+            }
+
+        }
+
+        res
+
+    }
+
 
     ///
     /// Function to filter a hashmap of tools only by relevant tools

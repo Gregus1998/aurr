@@ -6,17 +6,17 @@
         "config_tag" : "SURGE",
         "localpath" : "/home/cyfjonass/aurr/aurr-manager/data/tools/Surge-Collect.exe",
         "mandatory_steps" : {
-            "Generate" : ["SURGE_SAS_TOKEN"]
+            "Generate" : ["SURGE_SAS-UPLOAD-TOKEN"]
         },
         "call" : {
-            "Default_Windows_Upload_Azure" : ["Surge-Collect.exe", "SURGE_COLLECT_PASSWORD", "SURGE_AZURE_STORAGE_ACCOUNT", "--sas-token=SURGE_SAS_TOKEN"],
-            "Default_Windows" : ["Surge-Collect.exe", "SURGE_COLLECT_PASSWORD","DEFAULT_DUMP_PATH_WINDOWS"],
-            "Windows_Fetch_OneFile_Upload_Azure" : ["Surge-Collect.exe","SURGE_COLLECT_PASSWORD", "--no-memory", "--file='C:\\Users\\Jonassorensen\\Downloads\\superinfo'", "--azblob-sas-token='<SURGE_COLLECT_SAS_TOKEN>'"] 
+            "Default_Windows_Upload_Azure" : [".\\Surge-Collect.exe","SURGE_COLLECT_PASSWORD","AZBLOB://AZURE_ACCOUNT_STORAGE_NAME/AZURE_UPLOAD_CONTAINER_NAME","--azblob-sas-token='SURGE_SAS-UPLOAD-TOKEN'"],
+            "Default_Windows_Save_Local" : [".\\Surge-Collect.exe", "SURGE_COLLECT_PASSWORD"],
+            "Windows_Fetch_OneFile_Upload_Azure" : [".\\Surge-Collect.exe","SURGE_COLLECT_PASSWORD", "--no-memory", "--file='C:\\Users\\Jonassorensen\\Downloads\\superinfo'", "AZBLOB://AZURE_ACCOUNT_STORAGE_NAME/AZURE_UPLOAD_CONTAINER_NAME","--azblob-sas-token='SURGE_SAS-UPLOAD-TOKEN'"] 
         }
     },
 
     {
-        "name" : "Kape via Powershell",
+        "name" : "Kape",
         "Task" : "triage",
         "author" :"Jonas Sørensen",
         "config_tag": "KAPE",
@@ -30,25 +30,17 @@
     },
 
     {
-        "name" : "forensicstool",
-        "task" : "memory",
+        "name" : "Velociraptor",
+        "Task" : "triage",
         "author" :"Jonas Sørensen",
-        "config_tag" : "SURGE",
-        "localpath" : "/home/cyfjonass/aurr/aurr-manager/data/tools/forensicstool.exe",
-        "mandatory_steps" : null,
+        "config_tag": "KAPE",
+        "localpath" : "/home/cyfjonass/aurr/aurr-manager/data/tools/kape.zip",
+        "mandatory_steps" : {
+            "Compile" : [""]
+        }, 
         "call" : {
-            "Default_Forensicstool_Call" : [".\\forensicstool.exe", "lblir dette oppdatert?"]
-        }
-    },
-    {
-        "name" : "forensicstool2",
-        "task" : "triage",
-        "author" :"Jonas Sørensen",
-        "config_tag" : "SURGE",
-        "localpath" : "/home/cyfjonass/aurr/aurr-manager/data/tools/forensicstool.exe",
-        "mandatory_steps" : null,
-        "call" : {
-            "Default_Forensicstool_Call" : [".\\forensicstool.exe", "forensicstool2"]
+            "Default_Windows_Upload_Azure" : ["KAPE_UNPACK_DIR\\kape.exe", "KAPE_STANDARD_TRIAGE_ARGUMENTS"]
         }
     }
+    
 ]

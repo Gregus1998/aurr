@@ -20,18 +20,21 @@ use serde::{Deserialize};
 pub enum AzureCloudResource{
     Text(String),
     Blob(Blob),
-    BlobClient(azure_storage_blobs::prelude::BlobClient)
+    BlobClient(azure_storage_blobs::prelude::BlobClient),
+    Container(Container)
 }
 
 impl AzureCloudResource{
 
-    pub fn get_blobclient(&self, cc:ContainerClient) -> BlobClient{
+    pub fn get_blobclient(&self, cc:ContainerClient) -> Option<BlobClient>{
         //Function to get a blobclient for a AzureCloudResource. 
         //Need ContainerClient
         match self{
-            AzureCloudResource::Blob(blob) => cc.blob_client(blob.name.clone()),
-            AzureCloudResource::Text(s) => cc.blob_client(s),
-            AzureCloudResource::BlobClient(_bc) => _bc.clone(),
+            AzureCloudResource::Blob(blob) => Some(cc.blob_client(blob.name.clone())),
+            AzureCloudResource::Text(s) => Some(cc.blob_client(s)),
+            AzureCloudResource::BlobClient(_bc) => Some(_bc.clone()),
+            AzureCloudResource::Container(_) => None
+
         }
     }
 
@@ -39,8 +42,21 @@ impl AzureCloudResource{
         match self {
             AzureCloudResource::Text(s) => s,
             AzureCloudResource::Blob(b) => &b.name,
-            AzureCloudResource::BlobClient(bc) => bc.blob_name()
+            AzureCloudResource::BlobClient(bc) => bc.blob_name(),
+            AzureCloudResource::Container(con) => &con.name 
             
+        }
+    }
+
+
+    ///
+    /// Function to get the potensial name of a container for a random set of AzureCloudReseources
+    /// 
+    pub fn get_container_name(&self) -> Option<&str>{
+        match &self{
+            AzureCloudResource::BlobClient(bc) => Some(bc.container_client().container_name()),
+            AzureCloudResource::Container(con) => Some(&con.name),
+            _ => None
         }
     }
 }
@@ -288,7 +304,7 @@ impl AzureStorageMgmt {
         let cc = self.get_container_client(container, true).await.unwrap();
 
         //Getting the blob_client for the target resource in this containere
-        let bc = t_resource.get_blobclient(cc);
+        let bc = t_resource.get_blobclient(cc).unwrap();
 
         match bc.shared_access_signature(perm,OffsetDateTime::now_utc() + Duration::hours(timeout.into())).await{
             Ok(sas) => Some(sas),
@@ -300,6 +316,7 @@ impl AzureStorageMgmt {
 
     ///
     /// Function to generate a sas-tokoen for a container
+    /// If the container does not exist, it will be created. 
     /// 
     pub async fn gen_container_sas_token(&self, container:&str, perm:BlobSasPermissions, timeout:u8) -> Option<BlobSharedAccessSignature>{
         
@@ -316,7 +333,7 @@ impl AzureStorageMgmt {
 
     ///
     /// Function to generae a sas token for a given container
-    pub async fn gen_upload_container_sas(&self, container:&str, timeout:u8)  -> Result<String, Box<dyn std::error::Error>>{
+    pub async fn gen_upload_container_sas(&self, container:&Container, timeout:u8)  -> Result<String, Box<dyn std::error::Error>>{
         let perm = BlobSasPermissions {
                         read: true,
                         add: true,
@@ -333,18 +350,34 @@ impl AzureStorageMgmt {
                         permissions: false,
                         };
         
-        warning!("Generating a SAS-TOKEN for container: {}\n PERM: {}\n Timeout: UTC +{} Hours", container, perm, timeout);
+        warning!("Generating a SAS-TOKEN for container: {}\n PERM: {}\n Timeout: UTC +{} Hours", container.name, perm, timeout);
         
-        let sas_token = self.gen_container_sas_token(container,perm, timeout)
+        let sas_token = self.gen_container_sas_token(&container.name,perm, timeout)
                     .await.unwrap();
         
         Ok(sas_token.token().unwrap())
 }
 
-    pub async fn get_blob_download_url(&self, container:Option<&str>, t_resource:AzureCloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>{
+
+    ///
+    /// Function to get the download url for AZURE blobs given a AzureCloudResource
+    /// \n Need to provide a combination of containeroption + t_resource where it is possible to extract the desired container.
+    /// 
+    pub async fn get_blob_download_url(&self, containeroption:Option<&str>, t_resource:AzureCloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>{
+
+        //Som error handling to make sure that you provide a sufficient amount of information. 
+        let container = match containeroption{
+            Some(s) => s,
+            None => {
+                match t_resource.get_container_name(){
+                    Some(con) => con,
+                    None => return Err("Error in AzureStorageMgmt::get_blob_download_url: the provided containeroption + t_resource creates error".into())
+                }
+            }
+        };
 
         //Defining the sas token
-        let sas_token = self.gen_blob_sas_token(container.unwrap(), &t_resource,BlobSasPermissions {
+        let sas_token = self.gen_blob_sas_token(container, &t_resource,BlobSasPermissions {
                         read: true,
                         add: false,
                         create: false,
@@ -364,11 +397,11 @@ impl AzureStorageMgmt {
         match &t_resource{
             AzureCloudResource::BlobClient(bc) => {
                 
-                Ok(format!("https://{}.blob.core.windows.net/{}/{}?{}", self.account_name, container.unwrap(), t_resource.get_name(), sas_token.token().unwrap()))
+                Ok(format!("https://{}.blob.core.windows.net/{}/{}?{}", self.account_name, container, t_resource.get_name(), sas_token.token().unwrap()))
             }
 
             AzureCloudResource::Text(blob_name) => {
-                Ok(format!("https://{}.blob.core.windows.net/{}/{}?{}", self.account_name, container.unwrap(), t_resource.get_name(), sas_token.token().unwrap()))
+                Ok(format!("https://{}.blob.core.windows.net/{}/{}?{}", self.account_name, container, t_resource.get_name(), sas_token.token().unwrap()))
         
             }
             _ => return Err("Provided AzureCloudResource not supported yet".into())
@@ -377,6 +410,12 @@ impl AzureStorageMgmt {
         
     }
 }
+
+
+
+
+
+
 
 pub struct CloudBasedFetchExecuteMngr{
     pub azure_mgmt: AzureStorageMgmt,

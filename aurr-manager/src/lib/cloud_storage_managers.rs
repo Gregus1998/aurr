@@ -3,6 +3,7 @@ use crate::lib::{
     azure::{AzureCloudResource, AzureStorageMgmt}, 
     tools::Tool};
 
+use azure_core::cloud;
 use config::Config;
 use futures::future::ok;
 use serde::de::DeserializeOwned;
@@ -29,6 +30,11 @@ impl CloudResource {
             
         }
     }
+    pub fn get_type(&self) -> String{
+        match self{
+            CloudResource::AZURE(_) => "AZURE".to_string()
+        }
+    }
 }
 
 ///
@@ -44,7 +50,8 @@ pub enum CloudServiceManager{
 
 pub trait CloudServiceManagerTrait {
     async fn upload(&self, resource:LocalResource, some_cloud_storage_path:&str) -> Result<CloudResource, Box<dyn std::error::Error>>;
-    async fn grant_read_access(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>;
+    async fn grant_read_access(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>; 
+    async fn grant_upload_token(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>;
 }
 
 
@@ -66,6 +73,12 @@ impl CloudServiceManagerTrait for CloudServiceManager{
     async fn grant_read_access(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>> {
         match self{
             CloudServiceManager::Azure(asm) => asm.grant_read_access(cloud_resource,timeout).await
+        }
+    }
+
+    async fn grant_upload_token(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>> {
+        match self{
+            CloudServiceManager::Azure(asm) => asm.grant_upload_token(cloud_resource,timeout).await
         }
     }
 }
@@ -110,6 +123,29 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
                 error!("Passed wrong cloud resource type to azure");
                 return Err("Wrong cloud resource type".into());
             }
+        }
+    }
+
+    ///
+    /// A function to grant a upload token to a type of azure cloud resource
+    /// Currently this only supports generating container SAS-upload tokens. 
+    /// The permissions for the upload need to be tuned. 
+    /// 
+    async fn grant_upload_token(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>> {
+        match cloud_resource.as_azure(){
+            
+            Some(acr) => {
+                
+                match acr{
+                    AzureCloudResource::Container(con) => {
+                        self.gen_upload_container_sas(con, timeout).await
+                    }
+                    _ => return Err(format!("Granting upload token for the provided AzureCloudresource is not supported.\n
+                    To fix this, add a implementation in impl 'CloudServiceManagerTrait for AzureStorageMgmt::grant_upload_token()'").into())
+                }
+            },
+            None => return Err(format!("Provided mismatch cloud resource {} for AZURE cloud",cloud_resource.get_type()).into())
+
         }
     }
 }

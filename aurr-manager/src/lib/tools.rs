@@ -8,7 +8,7 @@ use crate::{error, impl_has_name, lib::{aurr_core::{
 use config::{Config, Value};
 use serde::de::DeserializeOwned;
 use tracing::info;
-use std::str::FromStr;
+use std::{fmt::Debug, str::FromStr};
 
 //Module to handle the setup of all tools. 
 use std::{char::ToLowercase, clone, collections::HashMap};
@@ -62,7 +62,7 @@ impl ToolConfig {
     }
 
     ///Function to add config parameters based on another config.
-    pub fn search_other_config(&mut self, other_config:Config, search:&str){
+    pub fn search_other_config(&mut self, other_config:&Config, search:&str){
         for i in other_config.clone().cache.try_deserialize::<HashMap<String,Value>>().unwrap().keys().filter(|s| s.contains(search) ){
             let val = other_config.get::<String>(i).unwrap();
             self.add(i.to_string(), val);
@@ -75,8 +75,50 @@ impl ToolConfig {
 
     pub fn from_config_by_tag(config:Config, tag:&str) -> Option<ToolConfig>{
         let mut t = ToolConfig::new();
-        t.search_other_config(config, tag);
+        t.search_other_config(&config, tag);
         Some(t)
+    }
+    
+    pub fn from_config_by_tags(config:&Config, tags:Vec<&str>) -> Option<ToolConfig>{
+        let mut t = ToolConfig::new();
+        for tag in tags.iter(){
+            t.search_other_config(&config, tag);
+        }
+        Some(t)
+    }
+
+    ///
+    /// Function to edit a entry in the tools config. 
+    /// This takes a entry, if it exist, clear the buffer and push on a new value.
+    /// 
+    pub fn edit_entry(&mut self, key:String, new_val:String) -> Result<(), Box<dyn std::error::Error>>{
+
+        match self.config.get_mut(&key){
+            None => Err(format!("Key does not exist: {}",key).into()),
+            Some(val) => {
+                val.clear();
+                val.push_str(&new_val);
+                Ok(())
+            }
+        }
+
+
+    }
+
+    pub fn get<T>(&self ,key:&str) -> Option<T>
+    where
+    T: FromStr
+    {
+        match self.config.get(key){
+            None => None,
+            Some(val) => {match T::from_str(val){
+                Ok(res) => Some(res),
+                Err(e) => None
+            }}
+                
+        }
+
+        
     }
 }
 
@@ -167,11 +209,15 @@ impl Tool {
     ///
     /// A wrapper function for get_mandatory_step_by_type and process_mandatory_step
     ///Takes self, MandatorySteps and a tool config
+    ///
     /// -> a vector of steps to de in that mandatory step context
-    /// 
+    ///
+    ///  -> If 
     pub fn produce_mandator_steps_by_type(&self, mandatory_step_type:MandatorySteps, config:&ToolConfig) -> Option<Vec<String>>{
-        let ms = self.get_mandatory_step_by_type(mandatory_step_type.clone()).unwrap();
-        self.process_mandatory_step(mandatory_step_type, ms, Some(config))
+        match self.get_mandatory_step_by_type(mandatory_step_type.clone()) {
+            Some(ms) => self.process_mandatory_step(mandatory_step_type, ms, Some(config)),
+            None => None
+        }
     }
 
     /// 
@@ -179,10 +225,11 @@ impl Tool {
     /// Pass a cloud manager to the tool and it will pipe the tool up in cloud and generate a URL
     /// Only support for AZURE at the moment
     /// 
-    pub async fn cloudify(&mut self, cloud_manager:&CloudServiceManager, config:&Config) -> Result<String, Box<dyn std::error::Error>>{
+    pub async fn cloudify(&self, cloud_manager:&CloudServiceManager, config:&Config) -> Result<String, Box<dyn std::error::Error>>{
         
         let cp = config.get::<String>("AZURE_TOOLS_CONTAINER_NAME").unwrap();
 
+        //This returns a cloud resource
         let cr = match cloud_manager.upload(super::aurr_core::LocalResource::Tool(self.clone()), &cp).await{
             
             Ok(t) => {
@@ -197,7 +244,7 @@ impl Tool {
 
         };
 
-        let url = cloud_manager.grant_read_access(cr, config.get::<u8>("READ_VALIDITY_TIMEOUT").unwrap()).await.unwrap();
+        let url = cloud_manager.grant_read_access(cr, config.get::<u8>("CLOUD_TOKEN_READ_TIMEOUT").unwrap()).await.unwrap();
 
         Ok(url)
     }

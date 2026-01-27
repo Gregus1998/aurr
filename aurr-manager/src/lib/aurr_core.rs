@@ -1,8 +1,8 @@
 use crate::lib::{
     azure::AzureStorageMgmt, cloud_storage_managers::{CloudResource, CloudServiceManager, CloudServiceManagerTrait}, template::CaseTemplate, tools::{MandatorySteps, Tool, ToolConfig}};
 
+use azure_storage_blobs::container::Container;
 use config::Config;
-use futures::future::ok;
 use serde::de::DeserializeOwned;
 use tracing::error;
 use std::{
@@ -114,8 +114,8 @@ impl OperatingSystem{
 /// 
 pub fn get_download_template(shell:&str) -> Option<String>{
     match shell.to_lowercase().as_str() {
-        "powershell" => Some("POWERSHELL_DOWNLOAD_URL".to_string()),
-        "bash" => Some("BASH_DOWNLOAD_URL".to_string()),
+        "powershell" => Some("POWERSHELL_DOWNLOAD_CMD".to_string()),
+        "bash" => Some("BASH_DOWNLOAD_CMD".to_string()),
         &_ => {
             error!("Provided shell option is not supported: {}\n To add support do the following: 1. Add a variable in config. \n2. Update the match statement in aurr_core::get_download_template",shell);
             None
@@ -345,10 +345,16 @@ impl AurrCore <'_> {
     ///
     /// Function to take a set of tools 
     ///     1. Cloudify them
-    ///     2. Create and cloudify a download and execute scirpt
-    ///     3. Return a URL for this script
+    ///     2. Produce a script to do the following:
     /// 
-    pub async fn tmp_name(&self, tools:&mut HashMap<String,Tool>,case_template:CaseTemplate, config:&Config) -> Result<String, Box<dyn std::error::Error>>{
+    ///         a. Setup the enviroment on a remote system
+    ///         b. Download the tools from the cloud
+    ///         c. Runtime process required steps and additional resources
+    ///         d. Execute the tools based on a the provided config
+    ///         e. Cleanup 
+    ///
+    /// 
+    pub async fn tools_push_execute(&self, tools:&mut HashMap<String,Tool>,case_template:CaseTemplate, config:&Config) -> Result<String, Box<dyn std::error::Error>>{
 
 
         //Fetching and converting the OS for the given task
@@ -360,11 +366,19 @@ impl AurrCore <'_> {
         //Filtering so I only use the tools present in the task_template
         let mut filtered_tools = case_template.task_template.get_relevant_tools(tools);
 
-        for (name,tool) in filtered_tools.iter_mut(){
+        for (name,tool) in filtered_tools.iter(){
+
+            //  Getting the tools config by both tool_name and the GENERAL CLOUD CONFIG
+            // Almost there where we can just pass the whole config in between, but that would be too simple and easy to understand. 
+            // Atleast this supports a new token generation for each execution. 
+            //      -> This means it will be easy/possible to track token to different collections. 
+            let mut tool_config = ToolConfig::from_config_by_tags(&config, vec![&tool.config_tag,"CLOUD","AZURE"]).unwrap();
+
+            self.generate_entry_toolconfig(&mut tool_config, tool).await.unwrap();
 
             //Cloudify and push the tool on the cmds vector
             let url = tool.cloudify(&self.get_mgmr(), &config).await.unwrap();
-            
+
             let down_template = config.get::<String>(&get_download_template(&case_template.task_template.shell).unwrap()).unwrap();
             
             //Since this is running in a linux enviroment, then path of the local file will be used to save the file to a given system.
@@ -373,11 +387,10 @@ impl AurrCore <'_> {
             cmds.push(down_template
                 .replace("<URL>", &url)
                 .replace("<REMOTE_TOOL_FILE_NAME>", remote_download_filename));
+
+            println!("{:?}", tool_config);
+            cmds.extend(case_template.build_task(tool.clone(), &tool_config));
         }
-
-
-        //extending the cmdline with the execution of the actual tools. 
-        cmds.extend(case_template.build_task_list(filtered_tools.clone(), &config));
 
         cmds.extend(os.cleanup(&config));
 
@@ -387,6 +400,11 @@ impl AurrCore <'_> {
         Ok("sa".to_string())
     }
 
+
+    /// 
+    /// A wrapper function around all the different mandatory steps.
+    /// 
+    ///  
     pub async fn process_mandatory_step(&self, tool:&Tool, config:&mut ToolConfig, ms:MandatorySteps) -> Option<Vec<String>>{
 
         //If the function is called without any steps -> None is returned
@@ -416,23 +434,63 @@ impl AurrCore <'_> {
     /// Function to handle all the different processing steps for config variable generation steps. 
     /// This finctuon should take any parameter input and produce a entry in the tool config. 
     /// Parameter format: "<config_tag>_<somevar1>_<somevar2>_<somevar_n>" 
-    ///     Example: SURGE_SAS_TOKEN -> This will produce a enty in the config: 'SURGE_SAS-TOKEN' -> 'Some generated SAS-token'
+    ///     Example: SURGE_SAS-UPLOAD-TOKEN -> This will produce a enty in the config: 'SURGE_SAS-UPLOAD-TOKEN' -> 'Some generated SAS-token'
     /// 
     /// For each usecase of this there need to be added a support in in this function.
     /// This is solved with a chain of if else statements 
     /// 
-    pub async fn generate_entry_toolconfig(&self, config:&mut ToolConfig, parameter:String) -> Result<(), Box<dyn std::error::Error>>{
+    pub async fn generate_entry_toolconfig(&self, tool_config:&mut ToolConfig, tool:&Tool) -> Result<(), Box<dyn std::error::Error>>{
 
-        //Finding the prefix of the variable
-        let prefix = parameter.split("_").collect::<Vec<&str>>().first().unwrap().to_string();
+        //Ekstracting the generation steps. If this is empty, the execution will just continue
+        let generation_steps = match tool.get_mandatory_step_by_type(MandatorySteps::Generate){
+            Some(s) => s,
+            None => return Ok(())
+        };
 
-        if parameter.contains("SAS-UPLOAD-TOKEN"){
-            let token = self.generate_sas_upload_token().unwrap();
+        // Adding a tracking for if anything is happening here since rust does not support "match by substring search"
+        let mut did_somthing:bool = false;
+
+        for parameter in generation_steps.iter(){
+
+            if parameter.contains("SAS-UPLOAD-TOKEN"){
+
+                //Will check the config for SURGE_UPLOAD
+                let cloud_upload_location = format!("{}_SAS-UPLOAD-TOKEN",tool.config_tag);
+
+                match self.generate_sas_upload_token(
+                    CloudResource::AZURE(crate::lib::azure::AzureCloudResource::Container(Container::new(&tool_config.get::<String>("CLOUD_DEFAULT_UPLOAD_LOCATION").unwrap()))),
+                     tool_config.get::<u8>("CLOUD_TOKEN_UPLOAD_TIMEOUT").unwrap())
+                     .await{
+                        Ok(token) => tool_config.add(cloud_upload_location, token),
+                        Err(e) => return Err(e)
+                     }
+
+                
+                did_somthing = true;
+            }
         }
 
-        Ok((()))
+        if did_somthing{
+            Ok(())
+            
+        }else {
+            Err("The provided parameter is not supported".into())
+        }
 
+        
+    }
 
+    ///
+    /// Wrapper function to generate a token for a cloud resource.
+    /// 
+    pub async fn generate_sas_upload_token(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>{
+        
+        match self.get_mgmr().grant_upload_token(cloud_resource, timeout).await{
+            Ok(token) => Ok(token),
+            Err(e) => {
+                let msg = format!("Could not generate token due to: '{}'",e);
+                Err(msg.into())}
+        }
     }
 
 }
