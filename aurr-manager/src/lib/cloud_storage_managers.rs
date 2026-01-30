@@ -46,10 +46,25 @@ impl CloudResource {
             CloudResource::AZURE(acr) => format!("{}/{}", 
             match acr.get_container_name(){
                 Some(cn) => cn,
-                None => "N/A"
+                None => "N/A".to_string()
             },
             acr.get_name()).into(),
             _ => None
+        }
+    }
+
+    pub fn from_path(path:&str, cloud_type:&str) -> Result<CloudResource, Box<dyn std::error::Error>>{
+
+        match cloud_type {
+
+            "AZURE-CLOUD" => {
+                match AzureCloudResource::from_path(path){
+                    Ok(a) => return Ok(CloudResource::AZURE(a)),
+                    Err(e) => return Err(e.to_string().into())
+                }
+            },
+            _ => Err("CloudResource::from_path - cloudtype not supported".into())
+
         }
     }
 }
@@ -69,9 +84,13 @@ pub trait CloudServiceManagerTrait {
     async fn upload(&self, resource:LocalResource, some_cloud_storage_path:&str) -> Result<CloudResource, Box<dyn std::error::Error>>;
     async fn grant_read_access(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>; 
     async fn grant_upload_token(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>;
+    async fn grant_upload_url(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>;
     fn get_name(&self) -> String;
     fn get_type(&self) -> String;
-}
+
+    async fn list_containers(&self) -> Result<Vec<String>, Box<dyn std::error::Error>>;
+    async fn list_blobs_container(&self, container_name:&str) -> Result<Vec<String>, Box<dyn std::error::Error>>;
+} 
 
 
 ///
@@ -101,6 +120,14 @@ impl CloudServiceManagerTrait for CloudServiceManager{
         }
     }
 
+    async fn grant_upload_url(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>> {
+
+        match self{
+            CloudServiceManager::Azure(asm) => asm.grant_upload_url(cloud_resource, timeout).await
+        }
+        
+    }
+
     fn get_name(&self) -> String {
         match self{
             CloudServiceManager::Azure(acm) => acm.get_name()
@@ -114,6 +141,29 @@ impl CloudServiceManagerTrait for CloudServiceManager{
         }
         
     }
+
+    async fn list_containers(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        match self{
+            CloudServiceManager::Azure(acm) => {
+                match acm.list_containers().await{
+                    Ok(vec) => Ok(vec.iter().map(|c| c.name.clone()).collect::<Vec<String>>()),
+                    Err(e) => {
+                        Err(e.to_string().into())
+                    }
+                }
+            },
+            
+        }
+    }
+
+    async fn list_blobs_container(&self, container_name:&str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        match self{
+            CloudServiceManager::Azure(acm) => acm.list_blobs_container(container_name).await
+        }
+    }
+
+
+
 }
 
 impl CloudServiceManager {
@@ -159,6 +209,15 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
         }
     }
 
+    async fn list_containers(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        match self.list_containers().await{
+            Ok(vec) => Ok(vec.iter().map(|c| c.name.clone()).collect::<Vec<String>>()),
+            Err(e) => {
+                Err(e.to_string().into())
+            }
+        }
+    }
+
     ///
     /// A function to grant a upload token to a type of azure cloud resource
     /// Currently this only supports generating container SAS-upload tokens. 
@@ -182,6 +241,27 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
         }
     }
 
+
+    ///
+    /// Trait Function to grant a upload url to any type of azure cloud resource
+    /// 
+    async fn grant_upload_url(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>> {
+        match cloud_resource{
+            CloudResource::AZURE(cr) => {
+                let t:String = match cr{
+                    AzureCloudResource::Container(con) => {
+                        self.gem_upload_container_URL(&con, timeout).await?
+                    }
+                    _ => return Err("Generation for AzureCloudResource not implemented YET -> Add entry in AzureStorageMgmt::CloudServiceManagerTrait::grant_upload_url".into())
+                };
+                Ok(t)
+            },
+            _ => return Err("Mismatch for cloud resource".into())
+
+        }
+    }
+
+
     ///
     /// Trait function to get the name of azure storage account
     /// Used to display info runtime
@@ -196,5 +276,22 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
     /// 
     fn get_type(&self) -> String {
         "AZURE-CLOUD".to_string()
+    }
+
+    ///
+    /// A trait function to list all blobs in a specific container. 
+    /// Returns only the blob name for each blob.
+    /// 
+    async fn list_blobs_container(&self, container_name:&str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        match self.list_blobs(container_name).await{
+            Ok(blobs) => {
+                Ok(
+                    blobs.iter().map(|b| b.name.to_string()).collect()
+                )
+            },
+            Err(e) => {
+                Err(e.to_string().into())
+            }
+        }
     }
 }

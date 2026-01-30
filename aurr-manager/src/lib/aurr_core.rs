@@ -2,13 +2,12 @@ use crate::lib::{
     azure::AzureStorageMgmt, cloud_storage_managers::{CloudResource, CloudServiceManager, CloudServiceManagerTrait}, template::CaseTemplate, tools::{MandatorySteps, Tool, ToolConfig}};
 
 use azure_storage_blobs::container::Container;
+use colored::Colorize;
 use config::Config;
 use serde::de::DeserializeOwned;
 use tracing::error;
 use std::{
-    str::FromStr,
-    collections::HashMap,
-    fs::{self,DirEntry}, hash::Hash
+    collections::{BTreeMap, HashMap}, fmt::{Debug, Display}, fs::{self,DirEntry}, hash::Hash, str::FromStr
 };
 
 ///
@@ -29,6 +28,9 @@ pub enum LocalResource {
     Entry(DirEntry),
     Tool(Tool)
 }
+
+
+
 
 #[derive(Debug)]
 enum Shell {
@@ -255,6 +257,42 @@ pub fn load_manyjson_hashmap_by_name<T>(path:&str) -> Result<HashMap<String, T>,
 
         }
 
+pub fn print_map<K,T>(map:&HashMap<K,T>) -> String
+where
+K: Debug + Display,
+T: Debug
+{
+    let mut s = String::new();
+
+    for (key,val) in map.iter(){
+        s.push_str("\n\t\t");
+        s.push_str(format!(" {} => {:?}",key,val).replace("[\"\"]", "None").as_str());
+    };
+
+    s
+}
+
+pub fn print_btmap<K,T>(map:&BTreeMap<K,T>) -> String
+where
+K: Debug + Display,
+T: Debug + Display
+{
+    let mut s = String::new();
+
+    for (key,val) in map.iter(){
+        s.push_str("\n\t  ");
+        s.push_str(format!("{}:{}",key,val).replace("[\"\"]", "None").as_str());
+    };
+
+    s
+}
+
+
+
+
+
+
+
 /// 
 /// The Aurr Core structure. 
 /// cloudservicemanager: CloudServiceManager 
@@ -294,8 +332,6 @@ impl AurrCore{
             config: config.clone()
         }
     }
-
-
 
     pub fn mgr_as_azure(&self) -> Option<&AzureStorageMgmt>{
         match &self.cloudservicemanager{
@@ -363,10 +399,14 @@ impl AurrCore{
         //Initiating a vector with the setup steps.
         let mut cmds:Vec<String> = os.get_setup(&config);
 
-        //Filtering so I only use the tools present in the task_template
-        let mut filtered_tools = case_template.task_template.get_relevant_tools(tools);
+        // Filtering so I only use the tools present in the task_template
+        // Very ugly workaround, but the following 3 lines will filter based on tools provided in the task template.
+        // Then it will sort all the tools based on task steps. This should have been done in another way.  
+        let filtered_tools = case_template.task_template.get_relevant_tools(tools);
+        //let mut ft_vec:Vec<(&String,&Tool)> = filtered_tools.iter().collect();
+        //ft_vec.sort_by(|(_,a),(_,b)|a.task.cmp(&b.task));
 
-        for (name,tool) in filtered_tools.iter(){
+        for (_name,tool) in filtered_tools.iter(){
 
             //  Getting the tools config by both tool_name and the GENERAL CLOUD CONFIG
             // Almost there where we can just pass the whole config in between, but that would be too simple and easy to understand. 
@@ -376,7 +416,7 @@ impl AurrCore{
 
             self.generate_entry_toolconfig(&mut tool_config, tool).await.unwrap();
 
-            //Cloudify and push the tool on the cmds vector
+            //Cloudify and push the tool on the cmds vectord
             let url = tool.cloudify(&self.get_mgmr(), &config).await.unwrap();
 
             let down_template = config.get::<String>(&get_download_template(&case_template.task_template.shell).unwrap()).unwrap();
@@ -388,7 +428,7 @@ impl AurrCore{
                 .replace("<URL>", &url)
                 .replace("<REMOTE_TOOL_FILE_NAME>", remote_download_filename));
 
-            cmds.extend(case_template.build_task(tool.clone(), &tool_config));
+            cmds.extend(case_template.build_task(tool, &tool_config));
         }
 
         cmds.extend(os.cleanup(&config));
@@ -466,27 +506,44 @@ impl AurrCore{
                 //Will check the config for SURGE_UPLOAD
                 let cloud_upload_location = format!("{}_SAS-UPLOAD-TOKEN",tool.config_tag);
 
+                let con = match tool_config.get::<String>("CLOUD_DEFAULT_UPLOAD_LOCATION"){
+                    Some(s) => s,
+                    None => uuid::Uuid::new_v4().to_string()
+                };
+
+
                 match self.generate_sas_upload_token(
-                    CloudResource::AZURE(crate::lib::azure::AzureCloudResource::Container(Container::new(&tool_config.get::<String>("CLOUD_DEFAULT_UPLOAD_LOCATION").unwrap()))),
+                    CloudResource::AZURE(crate::lib::azure::AzureCloudResource::Container(Container::new(&con))),
                      tool_config.get::<u8>("CLOUD_TOKEN_UPLOAD_TIMEOUT").unwrap())
                      .await{
                         Ok(token) => tool_config.add(cloud_upload_location, token),
                         Err(e) => return Err(e)
                      }
 
-                
-                did_somthing = true;
+            } else if parameter.contains("SAS-UPLOAD-URI"){
+
+                //Defining the entry where the URI will be stored
+                let new_config_entry = format!("{}_SAS-UPLOAD-URI",tool.config_tag);
+
+                let con = match tool_config.get::<String>("CLOUD_DEFAULT_UPLOAD_LOCATION"){
+                    Some(s) => s,
+                    None => uuid::Uuid::new_v4().to_string()
+                };
+
+                match self.gen_sas_upload_url(
+                    CloudResource::AZURE(crate::lib::azure::AzureCloudResource::Container(Container::new(&con))),
+                     tool_config.get::<u8>("CLOUD_TOKEN_UPLOAD_TIMEOUT").unwrap())
+                     .await{
+                        Ok(token) => tool_config.add(new_config_entry, token),
+                        Err(e) => return Err(e)
+                     }
+            } else {
+                return Err("The provided parameter is not supported".into())
             }
-        }
-
-        if did_somthing{
-            Ok(())
-            
-        }else {
-            Err("The provided parameter is not supported".into())
-        }
-
         
+        }
+
+        Ok(())        
     }
 
     ///
@@ -500,6 +557,15 @@ impl AurrCore{
                 let msg = format!("Could not generate token due to: '{}'",e);
                 Err(msg.into())}
         }
+    }
+
+    /// 
+    /// Wrapper function to generate a sas URI
+    ///
+
+    pub async fn gen_sas_upload_url(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>{
+        self.get_mgmr().grant_upload_url(cloud_resource, timeout).await
+
     }
 
 }

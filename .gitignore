@@ -10,4 +10,4 @@
 # Ignore all files in rust target directory
 aurr-manager/target/
 aurr-manager/data/tools/
-
+aurr-manager/data/custom/

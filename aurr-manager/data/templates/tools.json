@@ -1,7 +1,7 @@
 [
     {
         "name" : "Surge-Collect",
-        "Task" : "memory",
+        "task" : "1 memory",
         "author" : "Jonas Sørensen",
         "config_tag" : "SURGE",
         "localpath" : "/home/cyfjonass/aurr/aurr-manager/data/tools/Surge-Collect.exe",
@@ -10,36 +10,24 @@
         },
         "call" : {
             "Default_Windows_Upload_Azure" : [".\\Surge-Collect.exe","SURGE_COLLECT_PASSWORD","AZBLOB://AZURE_ACCOUNT_STORAGE_NAME/AZURE_UPLOAD_CONTAINER_NAME","--azblob-sas-token='SURGE_SAS-UPLOAD-TOKEN'"],
-            "Default_Windows_Save_Local" : [".\\Surge-Collect.exe", "SURGE_COLLECT_PASSWORD"],
+            "Default_Windows_Test" : [".\\Surge-Collect.exe", "SURGE_COLLECT_PASSWORD", "--help"],
             "Windows_Fetch_OneFile_Upload_Azure" : [".\\Surge-Collect.exe","SURGE_COLLECT_PASSWORD", "--no-memory", "--file='C:\\Users\\Jonassorensen\\Downloads\\superinfo'", "AZBLOB://AZURE_ACCOUNT_STORAGE_NAME/AZURE_UPLOAD_CONTAINER_NAME","--azblob-sas-token='SURGE_SAS-UPLOAD-TOKEN'"] 
         }
     },
 
     {
         "name" : "Kape",
-        "Task" : "triage",
+        "task" : "2 triage",
         "author" :"Jonas Sørensen",
         "config_tag": "KAPE",
         "localpath" : "/home/cyfjonass/aurr/aurr-manager/data/tools/kape.zip",
         "mandatory_steps" : {
-            "Target" : ["Expand-Archive -Path kape.zip -DestinationPath KAPE_UNPACK_DIR"]
+            "Generate" : ["KAPE_SAS-UPLOAD-URI"],
+            "Target" : ["Expand-Archive -Path kape.zip -DestinationPath ."]
         }, 
         "call" : {
-            "Default_Windows_Upload_Azure" : ["KAPE_UNPACK_DIR\\kape.exe", "KAPE_STANDARD_TRIAGE_ARGUMENTS"]
-        }
-    },
-
-    {
-        "name" : "Velociraptor",
-        "Task" : "triage",
-        "author" :"Jonas Sørensen",
-        "config_tag": "KAPE",
-        "localpath" : "/home/cyfjonass/aurr/aurr-manager/data/tools/kape.zip",
-        "mandatory_steps" : {
-            "Compile" : [""]
-        }, 
-        "call" : {
-            "Default_Windows_Upload_Azure" : ["KAPE_UNPACK_DIR\\kape.exe", "KAPE_STANDARD_TRIAGE_ARGUMENTS"]
+            "Default_Windows_Upload_Azure" : [".\\kape.exe --tsource", "KAPE_TARGET_SOURCE", "--tdest ./", "--target !BasicCollection", "--vss --asu","\"KAPE_SAS-UPLOAD_URI\"", "--vhdx abcdefg"],
+            "Default_Windows_Test" : [".\\kape.exe --help"] 
         }
     }
     

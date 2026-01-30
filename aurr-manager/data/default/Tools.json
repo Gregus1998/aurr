@@ -1,0 +1,31 @@
+[
+    {
+        "name" : "Forensicstool1",
+        "Task" : "<TASK_TYPE>",
+        "author" :"MR. Bøttehatt",
+        "config_tag": "CONFIG_TAG",
+        "localpath" : "PATH/TO/FORENISCS/TOOL>",
+        "mandatory_steps" : {
+            "Target" : ["unzip zipfile.zip", "cd ./unpackedzip/"]
+        }, 
+        "call" : {
+            "Default_Memory_Collection" : ["./Forensicstool1", "Arg1", "Arg2=CONFIG_TAG_ARG2_VALUE"]
+        }
+    },
+
+    {
+        "name" : "Forensicstool2",
+        "Task" : "<TASK_TYPE>",
+        "author" :"MR. Bøttehatt",
+        "config_tag": "CONFIG_TAG",
+        "localpath" : "PATH/TO/FORENISCS/TOOL>",
+        "mandatory_steps" : {
+            "Compile" : ["COMPILE Forensicstool2 --TOKEN=SAS-TOKEN"]
+        }, 
+        "call" : {
+            "Default_Memory_Collection" : ["./Forensicstool2", "Arg1", "Arg2=CONFIG_TAG_ARG2_VALUE"],
+            "Default_Triage" : ["KAPE_UNPACK_DIR\\kape.exe", "KAPE_STANDARD_TRIAGE_ARGUMENTS"]
+        }
+    }
+    
+]

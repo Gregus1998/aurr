@@ -1,0 +1,5 @@
+{
+    "name" : "Example_Case_Name",
+    "hostname" : "Hostname",
+    "task_template" : "<Path/to/some/TaskTemplate.json>"
+}

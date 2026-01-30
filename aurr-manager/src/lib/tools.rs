@@ -1,4 +1,5 @@
 use crate::{error, impl_has_name, lib::{aurr_core::{
+        print_map,
         HasName,
         load_json_hashmap,
         load_manyjson_hashmap_by_name}, 
@@ -8,10 +9,11 @@ use crate::{error, impl_has_name, lib::{aurr_core::{
 use config::{Config, Value};
 use serde::de::DeserializeOwned;
 use tracing::info;
-use std::{fmt::Debug, str::FromStr};
+use std::{fmt::{Debug, Display}, str::FromStr};
 
 //Module to handle the setup of all tools. 
 use std::{char::ToLowercase, clone, collections::HashMap};
+use colored::{self, Colorize};
 
 
 ///
@@ -26,6 +28,17 @@ pub enum MandatorySteps{
     Generate,
     Target,
     Compile
+}
+
+impl Display for MandatorySteps {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self{
+            MandatorySteps::Compile => f.write_str("compile"),
+            MandatorySteps::Generate  => f.write_str("generate"),
+            MandatorySteps::Target => f.write_str("target")
+        }
+    }
+    
 }
 
 impl FromStr for MandatorySteps {
@@ -128,6 +141,7 @@ impl ToolConfig {
 pub struct Tool{
     pub name:String,
     pub author: String,
+    pub task:String,
     pub localpath:String,
     pub config_tag:String,
     pub mandatory_steps:Option<HashMap<MandatorySteps,Vec<String>>>,
@@ -137,6 +151,42 @@ pub struct Tool{
 impl_has_name!(Tool);
 
 impl Tool {
+
+    pub fn list_tool(&self, full:bool){
+        if full {
+            println!("
+            name: {},
+            author {},
+            localpath: {},
+            config_tag: {},
+            exists: {},
+            mandatory_steps: {}
+            call_options: {}
+            ",self.name,self.author,self.localpath.clone(),self.config_tag,
+                match std::fs::File::open(self.localpath.clone()){
+                    Ok(_) => "[TRUE]".green(),
+                    Err(_) => "[FALSE]".red()
+                },
+                print_map(&self.mandatory_steps.clone().unwrap()),
+                print_map(&self.call)
+            )
+
+        }else {
+            println!("
+            name: {},
+            author {},
+            localpath: {},
+            config_tag: {},
+            Exists: {}
+            ",self.name,self.author,self.localpath.clone(),self.config_tag,
+                match std::fs::File::open(self.localpath.clone()){
+                    Ok(_) => "[TRUE]".green(),
+                    Err(_) => "[FALSE]".red()
+                }
+            )
+        };
+
+    }
 
     pub fn load_from_json<T>(path:&str) -> Result<HashMap<String, T>,Box<dyn std::error::Error>>
     where

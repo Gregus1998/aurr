@@ -1,4 +1,4 @@
-use std::{collections::HashMap, hash::Hash, io::Error};
+use std::{collections::{BTreeMap, HashMap}, fmt::Display, hash::Hash, io::Error, process::exit};
 
 /*  A set of functions to parse and process the task template. 
     This will be used to make it more user friendly for anyone to use this.
@@ -7,10 +7,11 @@ use std::{collections::HashMap, hash::Hash, io::Error};
     The goal is to load a template, and then use this to create a list of tasks that needs to be done for everything to work.
 */
 use crate::{error, impl_has_name, lib::{aurr_core::{
-        HasName, load_json, load_json_hashmap, load_json_vec, load_manyjson_hashmap_by_name
+        HasName, load_json, load_json_hashmap, load_json_vec, load_manyjson_hashmap_by_name, print_map, print_btmap
     }, tools::{Tool, ToolConfig}}};
 
 use config::{Config, Value};
+use crossterm::style::Stylize;
 use serde::de::DeserializeOwned;
 
 /// 
@@ -68,8 +69,19 @@ impl CaseTemplate{
         self.task_template.build_remote_system_task_list(tools, config)
     }
 
-    pub fn build_task(&self,tool:Tool, tool_config:&ToolConfig) -> Vec<String>{
+    pub fn build_task(&self,tool:&Tool, tool_config:&ToolConfig) -> Vec<String>{
         self.task_template.build_remote_system_task(tool, tool_config)
+    }
+
+    ///
+    /// Function to list a case template for the help meny
+    /// 
+    pub fn ls_case(&self){
+        println!("
+        name: {},
+        hostname: {},
+        task_template: {}
+        ", self.name,self.hostname,self.task_template)
     }
 
 
@@ -85,6 +97,21 @@ impl TaskTemplate {
 
     pub fn list_tasks(&self) -> Vec<String> {
         self.tasks.keys().cloned().collect()
+    }
+
+    pub fn list_tasks_clean(&self) -> BTreeMap<String, String>{
+        let mut map = BTreeMap::new();
+
+        for (i,v) in &self.tasks{
+            let val = match v{
+                None => "None",
+                Some(a) => &print_map(&a)
+            };
+
+            map.insert(i.clone(), val.to_string());
+        }
+
+        map
     }
 
     ///
@@ -144,9 +171,8 @@ impl TaskTemplate {
     ///
     /// Function to build a specific task list for a given tool given a provided config
     /// 
-    pub fn build_remote_system_task(&self,tool:Tool, tool_config:&ToolConfig) -> Vec<String>{
+    pub fn build_remote_system_task(&self,tool:&Tool, tool_config:&ToolConfig) -> Vec<String>{
         let mut res:Vec<String> = Vec::new();
-
 
         //Sortin all the tasks in alphanumeric order.
         let mut v:Vec<_> = self.tasks.iter().collect();
@@ -160,7 +186,12 @@ impl TaskTemplate {
                 Some(task_map) => {
 
                         //Fetching the desired tool.
-                        let callkeyss = task_map.get(&tool.name).unwrap();
+                        let callkeyss = match task_map.get(&tool.name){
+                            Some(c) => c,
+                            None => {
+                                continue;
+                            }
+                        };
 
                         //For each of the mandaroty steps. If they are present. append them to the task list prior to the cmd.
                         match tool.produce_mandator_steps_by_type(super::tools::MandatorySteps::Target, &tool_config){
@@ -185,7 +216,7 @@ impl TaskTemplate {
     ///
     /// Function to filter a hashmap of tools only by relevant tools
     /// 
-    pub fn get_relevant_tools(&self, tools:&mut HashMap<String,Tool>) -> HashMap<String,Tool>{
+    pub fn get_relevant_tools(&self, tools:&mut HashMap<String,Tool>) -> BTreeMap<String,Tool>{
 
         let mut rt:Vec<String> = Vec::new();
 
@@ -202,7 +233,7 @@ impl TaskTemplate {
             }
         }
 
-        let mut new_map:HashMap<String,Tool> = HashMap::new();
+        let mut new_map:BTreeMap<String,Tool> = BTreeMap::new();
 
         for keys in rt.iter(){
 
@@ -213,8 +244,25 @@ impl TaskTemplate {
                 }
             };
         }
-
+        
         new_map
 
+    }
+
+}
+
+impl std::fmt::Display for TaskTemplate {
+
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+
+        let tasks = self.list_tasks_clean();
+
+        let s = format!("
+        TaskName: {},
+        OS: {},
+        Shell: {},
+        Tasks:{}
+        ",self.name.clone(),self.os,self.shell,print_btmap(&tasks));
+        f.write_str(s.as_str())
     }
 }

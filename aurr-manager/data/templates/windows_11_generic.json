@@ -4,8 +4,9 @@
     "os" : "Windows",
     "shell" : "powershell",
     "tasks" : {
-        "1 memory" : {"Surge-Collect" : ["Windows_Fetch_OneFile_Upload_Azure"]},
-        "2 triage" : null,
+        "1 memory" : {"Kape" : ["Default_Windows_Test"]},
+        "2 triage" : {
+            "Surge-Collect" : ["Default_Windows_Test"]},
         "3 disk" : null,
         "4 other" : null
     }

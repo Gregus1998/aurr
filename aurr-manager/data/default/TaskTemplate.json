@@ -1,0 +1,15 @@
+
+{
+    "name" : "Example Task Template",
+    "os" : "Windows",
+    "shell" : "powershell",
+    "tasks" : {
+        "1 memory" : {
+            "Forensicstool1" : ["Default_Memory_Collection"],
+            "Forensicstool2" : ["Default_Memory_Collection"]
+    },
+        "2 triage" : {"Forensicstool2": ["Default_Triage"]},
+        "3 disk" : null,
+        "4 other" : null
+    }
+}

@@ -8,7 +8,7 @@ use azure_core::{
     credentials::Secret, time::{Duration, OffsetDateTime}
 };
 use azure_storage_blobs::
-    {blob::{Blob}, 
+    {blob::{self, Blob}, 
         container::Container, 
         prelude::*
     };
@@ -16,7 +16,8 @@ use azure_storage::{prelude::*, shared_access_signature::service_sas::BlobShared
 use futures::{stream::StreamExt};
 use serde::{Deserialize};
 
-/// Enum to store the different types of blobs  
+/// Enum to store the different types of blobs 
+#[derive(Debug)]
 pub enum AzureCloudResource{
     Text(String),
     Blob(Blob),
@@ -31,7 +32,15 @@ impl AzureCloudResource{
         //Need ContainerClient
         match self{
             AzureCloudResource::Blob(blob) => Some(cc.blob_client(blob.name.clone())),
-            AzureCloudResource::Text(s) => Some(cc.blob_client(s)),
+            AzureCloudResource::Text(s) => {
+                
+                //Some random logic to handle if a container is passed or not. 
+                let blob = match s.split_once("/"){
+                    Some(prod) => prod.1,
+                    None => s
+                };
+
+                Some(cc.blob_client(blob))},
             AzureCloudResource::BlobClient(_bc) => Some(_bc.clone()),
             AzureCloudResource::Container(_) => None
 
@@ -52,13 +61,42 @@ impl AzureCloudResource{
     ///
     /// Function to get the potensial name of a container for a random set of AzureCloudReseources
     /// 
-    pub fn get_container_name(&self) -> Option<&str>{
+    pub fn get_container_name(&self) -> Option<String>{
         match &self{
-            AzureCloudResource::BlobClient(bc) => Some(bc.container_client().container_name()),
-            AzureCloudResource::Container(con) => Some(&con.name),
+            AzureCloudResource::BlobClient(bc) => Some(bc.container_client().container_name().to_string()),
+            AzureCloudResource::Container(con) => Some(con.clone().name),
+            //For all cases of AzurCloudResource::Text. There will be a path passed.
+            AzureCloudResource::Text(string) =>
+            Some(string.replace("\\", "/").split("/").collect::<Vec<&str>>()[0].to_string()),
             _ => None
         }
     }
+
+    ///
+    /// Function to generate a Azure cloud resource from a path.
+    /// Aims to parse <container>/<blob> into a resource. 
+    ///  
+    pub fn from_path(path:&str) -> Result<AzureCloudResource, Box<dyn std::error::Error>>{
+
+        //Replaces the use of "\\" to "/"
+        let mut s = path.to_string().replace("\\", "/");
+
+        //removes last element if it is equal to "/"
+        //should only handle the usecase where someone ask for access to <container>/
+        if s.ends_with("/"){
+            s.pop();
+        }
+
+        //Splitting based on "/""
+        let v:Vec<&str> = path.split("/").collect();
+
+        match v.len(){
+            0 => Err("Tried to create Azure Cloud Resource from invalid Optional Argument".into()),
+            1 => Ok(AzureCloudResource::Container(Container::new(v[0]))),
+            _ => Ok(AzureCloudResource::Text(s)) // Not the best approach, but whenerver a path container/path/to/blob is passed. I just move the problem to another part of th code.
+        }
+    }
+
 }
 
 #[derive(Deserialize, Debug)]
@@ -357,9 +395,21 @@ impl AzureStorageMgmt {
         
         let sas_token = self.gen_container_sas_token(&container.name,perm, timeout)
                     .await.unwrap();
-        
+    
+
         Ok(sas_token.token().unwrap())
-}
+    }
+
+    pub async fn gem_upload_container_URL(&self, container:&Container, timeout:u8)-> Result<String, Box<dyn std::error::Error>>{
+
+        let token = match self.gen_upload_container_sas(container, timeout).await{
+            Ok(r) => r,
+            Err(e) => return Err(e)
+        };
+
+        Ok(format!("https://{}.blob.core.windows.net/{}?{}", self.account_name, container.name, token))
+
+    }
 
 
     ///
@@ -373,127 +423,62 @@ impl AzureStorageMgmt {
             Some(s) => s,
             None => {
                 match t_resource.get_container_name(){
-                    Some(con) => con,
+                    Some(con) => &con.clone(),
                     None => return Err("Error in AzureStorageMgmt::get_blob_download_url: the provided containeroption + t_resource creates error".into())
                 }
             }
         };
 
-        //Defining the sas token
-        let sas_token = self.gen_blob_sas_token(container, &t_resource,BlobSasPermissions {
-                        read: true,
-                        add: false,
-                        create: false,
-                        write: false,
-                        delete: false,
-                        delete_version: false,
-                        permanent_delete: false,
-                        list: false,
-                        tags: false,
-                        move_: false,
-                        execute: false,
-                        ownership: false,
-                        permissions: false,
-                        }, timeout)
-                    .await.unwrap();
+       
 
         match &t_resource{
+            //Found it to be much easier to grant access to a BlobClient. 
+            //All other types of AzureCloudResources that should be able to grant a read access should point to the BlobClient Switch
             AzureCloudResource::BlobClient(bc) => {
+                 //Defining the sas token
+                let sas_token = self.gen_blob_sas_token(container, &t_resource,BlobSasPermissions {
+                                read: true,
+                                add: false,
+                                create: false,
+                                write: false,
+                                delete: false,
+                                delete_version: false,
+                                permanent_delete: false,
+                                list: false,
+                                tags: false,
+                                move_: false,
+                                execute: false,
+                                ownership: false,
+                                permissions: false,
+                                }, timeout)
+                            .await.unwrap();
                 
                 Ok(format!("https://{}.blob.core.windows.net/{}/{}?{}", self.account_name, container, t_resource.get_name(), sas_token.token().unwrap()))
             }
 
+            //Could be buggy stuff here. Be carefull when maintaining >:() 
             AzureCloudResource::Text(blob_name) => {
-                Ok(format!("https://{}.blob.core.windows.net/{}/{}?{}", self.account_name, container, t_resource.get_name(), sas_token.token().unwrap()))
-        
+
+                // Logic to extract the container and blob path from a URL 
+                let container_blob = match blob_name.replace("\\", "/").split_once("/"){
+                    None => return Err("Cant Grant Read Access to CONTAINER ONLY".into()),
+                    Some((i,v)) => (i.to_string(),v.to_string())
+                };
+
+                //Creating a contianer client
+                let cc = self.get_container_client(&container_blob.0, true).await.unwrap();
+
+                let bc = AzureCloudResource::BlobClient(cc.blob_client(&container_blob.1));
+
+                let val = Box::pin(async move {
+                    self.get_blob_download_url(None, bc, timeout).await.unwrap()
+                }).await;
+
+                Ok(val)
+                
             }
             _ => return Err("Provided AzureCloudResource not supported yet".into())
         }
 
     }
 }
-
-
-
-
-
-
-
-pub struct CloudBasedFetchExecuteMngr{
-    pub azure_mgmt: AzureStorageMgmt,
-    config_file_path: String,
-    config:Config,
-    tools_local:Option<Vec<fs::DirEntry>>,
-    tools_cloud:Option<Vec<String>>
-}
-
-impl CloudBasedFetchExecuteMngr {
-
-    pub fn new(config_path:String) -> CloudBasedFetchExecuteMngr{
-
-        let mut file = File::open(&config_path).unwrap();
-        let mut content = String::new();
-        file.read_to_string(&mut content).unwrap();
-        let config:Config = serde_json::from_str(&content).unwrap();
-        let azmgmt = AzureStorageMgmt::new(&config.account_name, &config.sas_token).unwrap();
-
-        CloudBasedFetchExecuteMngr { azure_mgmt: azmgmt, config_file_path: config_path, config, tools_local:None, tools_cloud:None}
-    }
-
-    pub fn print_config(&self){
-        println!("{:#?}",self.config);
-    }
-
-    pub fn update_local_tools_index(&mut self){
-        //Function to update local tool index
-
-        let mut tools:Vec<fs::DirEntry> = Vec::new();
-        let t = fs::read_dir(&self.config.tools_dir_local).unwrap();
-        
-        for tool in t{
-            tools.push(tool.unwrap());
-        }
-        self.tools_local = Some(tools);
-    }
-
-    pub async fn update_cloud_tools_index(&mut self){
-        
-        let tools = self.azure_mgmt.list_blobs(&self.config.tools_dir_cloud).await.unwrap();
-        let mut vec:Vec<String> = Vec::new();
-        for blob in tools.iter(){
-            vec.push(blob.name.clone());
-        }
-        self.tools_cloud = Some(vec);
-    }
-
-    pub fn list_tools_local(&mut self){
-        self.update_local_tools_index();
-
-        for t in self.tools_local.as_ref().unwrap(){
-            println!("{:?}",t.file_name());
-        }
-    }
-
-    pub async fn list_tools_cloud(&mut self){
-        self.update_cloud_tools_index().await;
-
-        for t in self.tools_cloud.as_ref().unwrap().iter(){
-            println!("{:?}",t);
-        }
-    }
-
-    pub async fn list_containers(&self){
-
-        match self.azure_mgmt.list_containers().await {
-            Ok(a) => {
-                for i in a.iter(){
-                    println!("{:?}",i.name);
-                }
-            },
-            Err(e) => println!("{:#?}", e),
-        }
-    }    
-
-}
-
-
