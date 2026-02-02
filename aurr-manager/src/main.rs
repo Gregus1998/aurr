@@ -145,6 +145,7 @@ impl ArgParser{
                     Ok(key) => key,
                     Err(e) => {
                         println!("CLOUD ACCOUNT KEY DOES NOT EXIST - {} - provide key via argument: --account-key=<key>  or ENV_VAR: AZURE_ACCESS_KEY=<key>",e.to_string());
+                        ArgParser::print_help();
                         exit(8)
                     }
                 }
@@ -293,7 +294,7 @@ impl ArgParser{
                 let cr = match self.options.get("cloud-resource"){
                     Some(s) => s,
                     None => {
-                        error!("Need to provide a ClourdResource: <--cloud-respource=<pathto/cloudresource>>");
+                        error!("Need to provide a ClourdResource: <--cloud-resource=<pathto/cloudresource>>");
                         exit(7)
                     }
                 };

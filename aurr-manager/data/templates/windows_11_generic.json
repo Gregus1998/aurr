@@ -4,9 +4,12 @@
     "os" : "Windows",
     "shell" : "powershell",
     "tasks" : {
-        "1 memory" : {"Kape" : ["Default_Windows_Test"]},
+        "1 memory" : {
+            "Surge-Collect" : ["Default_Windows_Test"]
+        },
         "2 triage" : {
-            "Surge-Collect" : ["Default_Windows_Test"]},
+            "Kape" : ["Default_Windows_Test"]
+            },
         "3 disk" : null,
         "4 other" : null
     }

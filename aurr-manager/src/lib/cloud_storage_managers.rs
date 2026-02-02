@@ -202,6 +202,7 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
             CloudResource::AZURE(acr) => {
                 self.get_blob_download_url(None, acr, timeout).await
             },
+            
             _ => {
                 error!("Passed wrong cloud resource type to azure");
                 return Err("Wrong cloud resource type".into());
