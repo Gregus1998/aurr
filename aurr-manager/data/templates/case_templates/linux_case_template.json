@@ -1,0 +1,5 @@
+{
+    "name" : "TestDumpDavid",
+    "hostname" : "Hostname",
+    "task_template" : "/home/cyfjonass/aurr/aurr-manager/data/templates/task_templates/Linux_Generic.json"
+}

@@ -1,19 +1,7 @@
 use crate::lib::{
     aurr_core::{LocalResource,GetName},
-    azure::{AzureCloudResource, AzureStorageMgmt}, 
-    tools::Tool};
-
-use azure_core::cloud;
-use config::Config;
-use crossterm::style::Stylize;
-use futures::future::ok;
-use serde::de::DeserializeOwned;
-use tracing::error;
-use std::{
-    collections::HashMap,
-    fs
+    azure::{AzureCloudResource, AzureStorageMgmt}
 };
-
 
 ///
 /// Enum to store and structure all the different types of cloud resources
@@ -26,9 +14,7 @@ impl CloudResource {
 
     pub fn as_azure(&self) -> Option<&AzureCloudResource>{
         match self {
-            CloudResource::AZURE(azure) => Some(azure),
-            _ => None
-            
+            CloudResource::AZURE(azure) => Some(azure)
         }
     }
     pub fn get_type(&self) -> String{
@@ -48,8 +34,7 @@ impl CloudResource {
                 Some(cn) => cn,
                 None => "N/A".to_string()
             },
-            acr.get_name()).into(),
-            _ => None
+            acr.get_name()).into()
         }
     }
 
@@ -171,16 +156,14 @@ impl CloudServiceManager {
     //Function to convert self as Option<&AzureStorageMgmt>
     pub fn as_azure(&self) -> Option<&AzureStorageMgmt>{
         match &self{
-            CloudServiceManager::Azure(a) => Some(a),
-            _ => None
+            CloudServiceManager::Azure(a) => Some(a)
         }
     }
 
     ///Function to convert self as Option<&mut AzureStorageMgmt>
     pub fn as_mut_azure(&mut self) -> Option<&mut AzureStorageMgmt>{
         match self{
-            CloudServiceManager::Azure(a) => Some(a),
-            _ => None
+            CloudServiceManager::Azure(a) => Some(a)
         }
     }
 }
@@ -201,11 +184,6 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
         match cloud_resource{
             CloudResource::AZURE(acr) => {
                 self.get_blob_download_url(None, acr, timeout).await
-            },
-            
-            _ => {
-                error!("Passed wrong cloud resource type to azure");
-                return Err("Wrong cloud resource type".into());
             }
         }
     }
@@ -251,13 +229,12 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
             CloudResource::AZURE(cr) => {
                 let t:String = match cr{
                     AzureCloudResource::Container(con) => {
-                        self.gem_upload_container_URL(&con, timeout).await?
+                        self.gem_upload_container_url(&con, timeout).await?
                     }
                     _ => return Err("Generation for AzureCloudResource not implemented YET -> Add entry in AzureStorageMgmt::CloudServiceManagerTrait::grant_upload_url".into())
                 };
                 Ok(t)
-            },
-            _ => return Err("Mismatch for cloud resource".into())
+            }
 
         }
     }

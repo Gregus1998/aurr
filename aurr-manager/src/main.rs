@@ -275,7 +275,7 @@ impl ArgParser{
                     }
                 };
 
-                match self.aurr_mgmr.as_ref().unwrap().tools_push_execute(&mut tools, case.clone(), self.config.as_ref().unwrap()).await{
+                match self.aurr_mgmr.as_ref().unwrap().tools_push_execute(&mut tools, case.clone(), self.config.as_mut().unwrap()).await{
                     Ok(results) => {
 
                         info!("Run at target: <{}>", results);
@@ -488,8 +488,8 @@ impl ArgParser{
             if args.starts_with("--"){
 
                 //Adding an incusion for easier list all for arguments.
-                if args.ends_with("--list-all") || args.ends_with("--full-info"){
-                    &self.options.insert("full-info".to_string(), "true".to_string());
+                if args.ends_with("--list-all") || args.ends_with("--full-info") || args.ends_with("--all"){
+                    self.options.insert("full-info".to_string(), "true".to_string());
                     continue;
                 }
                 
@@ -563,8 +563,9 @@ impl ArgParser{
                                         - case                   // List information from the provided case - This prints task tempalte aswell!
                                         - config                 // List current running config. Same as \"print-config\"
                                         - cloud (TODO)           // List basic info about the connected cloud
-                                        - containers::<filter>   // List available container for the specific azure storage account
-                                        - blobs (TODO)           // List a set of blobs from the specific azure storage account        
+                                        - container::<filter>    // List available container for the specific azure storage account
+                                        - blobs (TODO)
+                                        - search container::<filter>       
     
     print-config                //prints the current running config.
 
@@ -646,6 +647,5 @@ impl ArgParser{
 
 #[tokio::main]
 async fn main() {
-
     let  ap = ArgParser::new().await.unwrap();
 }

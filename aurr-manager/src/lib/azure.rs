@@ -1,20 +1,19 @@
 // Library to store all azure structs and functions. 
 use crate::{error, info, lib::{
-    aurr_core::LocalResource, error::CustomError, logging, tools::Tool}, warning};
+    aurr_core::LocalResource}};
 
 use async_recursion::async_recursion;
-use std::{fmt::Debug, fs::{self, File}, io::{Read},};
+use std::{fmt::Debug, fs::File, io::Read, process::exit,};
 use azure_core::{
-    credentials::Secret, time::{Duration, OffsetDateTime}
+    time::{Duration, OffsetDateTime}
 };
 use azure_storage_blobs::
-    {blob::{self, Blob}, 
+    {blob::Blob, 
         container::Container, 
         prelude::*
     };
 use azure_storage::{prelude::*, shared_access_signature::service_sas::BlobSharedAccessSignature};
 use futures::{stream::StreamExt};
-use serde::{Deserialize};
 
 /// Enum to store the different types of blobs 
 #[derive(Debug)]
@@ -99,15 +98,6 @@ impl AzureCloudResource{
 
 }
 
-#[derive(Deserialize, Debug)]
-pub struct Config{
-    account_name:String,
-    sas_token:String,
-    tools_dir_local:String,
-    tools_dir_cloud:String,
-    upload_dir:String,
-}
-
  ///Wrapper Structure for the azure mgmt and core features
  /// Should handle all the core features targeting azure-cloud. 
  pub struct AzureStorageMgmt{
@@ -120,13 +110,13 @@ pub struct Config{
 impl AzureStorageMgmt {
 
     ///Function to create a new Azure_storage_Mgmt object
-    pub fn new(account_storage_name:&str, sas_token:&str) -> Result<AzureStorageMgmt, CustomError>{
+    pub fn new(account_storage_name:&str, sas_token:&str) -> Result<AzureStorageMgmt, Box<dyn std::error::Error>>{
 
         match StorageCredentials::sas_token(sas_token) {
 
             Err(e) => {
                 error!("Could not create storage credentials due to: {}",e );
-                Err(CustomError::GenericError(format!("{:?}",e)))
+                Err(e.into())
             },
             Ok(s) => {
                 return Ok(AzureStorageMgmt { 
@@ -152,17 +142,12 @@ impl AzureStorageMgmt {
         )
     }
 
-    pub async fn check_connection(&self){
-
-    }
-
     ///
     /// Function to return a vector of asure storage account containers.
     /// 
-    pub async fn list_containers(&self) -> Result<Vec<Container>,CustomError>{
+    pub async fn list_containers(&self) -> Result<Vec<Container>, Box<dyn std::error::Error>>{
 
-        
-
+    
         let blob_service_client =  BlobServiceClient::new(self.account_name.clone(),self.creds.clone()); 
 
         let mut response = blob_service_client.list_containers().into_stream();
@@ -179,68 +164,62 @@ impl AzureStorageMgmt {
     ///
     /// Function to create a new container in the storage account
     /// 
-    pub async fn create_container(&self, container_name:&str) -> Result<ContainerClient, CustomError>{
+    pub async fn create_container(&self, container_name:&str) -> Result<ContainerClient, Box<dyn std::error::Error>>{
 
         let container_client = self.bsc.container_client(container_name);
 
         match container_client.create().await{
-            Ok(s)     => {return Ok(container_client)},
-            Err(e) => {return Err(CustomError::AzureStorageError(e))}
+            Ok(_)     => Ok(container_client),
+            Err(e) => Err(e.into())
         }
     }
 
     ///
     /// Function to delete a container by name. If wrong name -> error
     /// 
-    pub async fn delete_container(&self, container_name:&str) -> Result<(), CustomError>{
-
-        match self.get_container_client(container_name, false).await{
-            Ok(cc) => {
-                match cc.delete().await{
-                    Ok(s) => {return Ok(())}
-                    Err(e) => {return Err(CustomError::AzureStorageError(e))}
-
-                }
-            },
-            Err(e) => {return Err(e)}
-
+    pub async fn delete_container(&self, container_name:&str) -> Result<(), Box<dyn std::error::Error>>{
+        match self.get_container_client(container_name).await{
+            Ok(cc) => match cc.delete().await{
+                Ok(_) => Ok(()),
+                Err(e) => Err(format!("Could not delete container due to {}",e).into())
+            }
+            Err(e) => Err(format!("Could not delete container due to {}",e).into())
+        
         }
-
     }
 
-    pub async fn get_container_client(&self, container_name:&str, create_container:bool) -> Result<ContainerClient,CustomError>{
+    pub async fn get_container_client(&self, container_name:&str) -> Result<ContainerClient,Box<dyn std::error::Error>>{
 
         let container_client = self.bsc.container_client(container_name);
 
-
         match container_client.exists().await{
-
             Ok(bool) => {
-                
-                if bool{
-                    return Ok(container_client);
-                }else {
-
-                    //If create_container flag is set -> try to create container
-                    if create_container{
-                        return(self.create_container(container_name).await)
+                if !bool{
+                    match container_client.create().await{
+                        Ok(_) => return {
+                            info!("Container {} created sucessfully",container_name);
+                            Ok(container_client)},
+                        Err(e) => {
+                            Err(e.into())
+                        }
                     }
 
-                    return Err(CustomError::GenericError(format!("Container does not exist | containername: {:?}", container_name)))
+                }else {
+                    Ok(container_client)
                 }
-
             },
-            Err(e) => {return Err(CustomError::AzureStorageError(e))}
-            
+            Err(e) => {
+                Err(e.into())
+            }
         }
-    
+            
     }
 
-    pub async fn list_blobs(&self, container_name:&str) -> Result<Vec<Blob>,CustomError>{
+    pub async fn list_blobs(&self, container_name:&str) -> Result<Vec<Blob>, Box<dyn std::error::Error>>{
 
-        //Function to get a Result<Vec<Blob>,CustomError> of all blob-objects in a provided container_name:&str
+        //Function to get a Result<Vec<Blob>, Box<dyn std::error::Error>> of all blob-objects in a provided container_name:&str
 
-        let container_client = self.get_container_client(container_name, false).await;
+        let container_client = self.get_container_client(container_name).await;
 
         match container_client{
 
@@ -258,17 +237,19 @@ impl AzureStorageMgmt {
 
             },
             Err(e) => {
-                return Err(e)
+                return Err(e.into())
             }
         }
 
     }
 
-    pub async fn upload(&self, container_name:&str, blob_name:&str, blob_data:Vec<u8>, overwrite:bool) -> Result<AzureCloudResource, CustomError>{
+    ///
+    /// Function to upload binary data to a blob in a container.
+    /// 
+    pub async fn upload(&self, container_name:&str, blob_name:&str, blob_data:Vec<u8>, overwrite:bool) -> Result<AzureCloudResource, Box<dyn std::error::Error>>{
 
         //Function to upload any data:Vec<u8> to a blob in a container
-
-        let cc = self.get_container_client(container_name, true).await.unwrap();
+        let cc = self.get_container_client(container_name).await?;
 
         let bc= cc.blob_client(blob_name);
         
@@ -276,11 +257,16 @@ impl AzureStorageMgmt {
 
         if exists{
             if overwrite == false{
-                return Err(CustomError::GenericError("Blob exists - overwrite set til 'false'".to_string()));
+                return Err("Blob exists - overwrite set til 'false'".into());
             }
         }
 
-        let a = bc.put_block_blob(blob_data).await.unwrap();
+        match bc.put_block_blob(blob_data).await{
+            Ok(_) => (),
+            Err(e) => {
+                error!("Could not upload binary data to <{}> <{}> due to: {}",container_name,blob_name, e.to_string());
+                return Err(e.into())}
+        };
 
         Ok(AzureCloudResource::BlobClient(bc))
     }
@@ -339,7 +325,7 @@ impl AzureStorageMgmt {
     pub async fn gen_blob_sas_token(&self, container:&str, t_resource:&AzureCloudResource, perm:BlobSasPermissions, timeout:u8) -> Option<BlobSharedAccessSignature>{
         
         //Get the container client
-        let cc = self.get_container_client(container, true).await.unwrap();
+        let cc = self.get_container_client(container).await.unwrap();
 
         //Getting the blob_client for the target resource in this containere
         let bc = t_resource.get_blobclient(cc).unwrap();
@@ -361,7 +347,13 @@ impl AzureStorageMgmt {
     pub async fn gen_container_sas_token(&self, container:&str, perm:BlobSasPermissions, timeout:u8) -> Option<BlobSharedAccessSignature>{
         
         //Get the container client
-        let cc = self.get_container_client(container, true).await.unwrap();
+        let cc = match self.get_container_client(container).await{
+            Ok(c) => c,
+            Err(e) => {
+                error!("Cound not crate container clinent for contianer: {} due to : {}",container,e.to_string());
+                exit(16)
+            }
+        };
 
         match cc.shared_access_signature(perm,OffsetDateTime::now_utc() + Duration::hours(timeout.into())).await{
             Ok(sas) => {
@@ -400,7 +392,7 @@ impl AzureStorageMgmt {
         Ok(sas_token.token().unwrap())
     }
 
-    pub async fn gem_upload_container_URL(&self, container:&Container, timeout:u8)-> Result<String, Box<dyn std::error::Error>>{
+    pub async fn gem_upload_container_url(&self, container:&Container, timeout:u8)-> Result<String, Box<dyn std::error::Error>>{
 
         let token = match self.gen_upload_container_sas(container, timeout).await{
             Ok(r) => r,
@@ -434,7 +426,7 @@ impl AzureStorageMgmt {
         match &t_resource{
             //Found it to be much easier to grant access to a BlobClient. 
             //All other types of AzureCloudResources that should be able to grant a read access should point to the BlobClient Switch
-            AzureCloudResource::BlobClient(bc) => {
+            AzureCloudResource::BlobClient(_) => {
                  //Defining the sas token
                 let sas_token = self.gen_blob_sas_token(container, &t_resource,BlobSasPermissions {
                                 read: true,
@@ -466,7 +458,7 @@ impl AzureStorageMgmt {
                 };
 
                 //Creating a contianer client
-                let cc = self.get_container_client(&container_blob.0, true).await.unwrap();
+                let cc = self.get_container_client(&container_blob.0).await.unwrap();
 
                 let bc = AzureCloudResource::BlobClient(cc.blob_client(&container_blob.1));
 

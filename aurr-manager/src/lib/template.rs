@@ -1,4 +1,4 @@
-use std::{collections::{BTreeMap, HashMap}, fmt::Display, hash::Hash, io::Error, process::exit};
+use std::{collections::{BTreeMap, HashMap},hash::Hash, process::exit};
 
 /*  A set of functions to parse and process the task template. 
     This will be used to make it more user friendly for anyone to use this.
@@ -7,11 +7,10 @@ use std::{collections::{BTreeMap, HashMap}, fmt::Display, hash::Hash, io::Error,
     The goal is to load a template, and then use this to create a list of tasks that needs to be done for everything to work.
 */
 use crate::{error, impl_has_name, lib::{aurr_core::{
-        HasName, load_json, load_json_hashmap, load_json_vec, load_manyjson_hashmap_by_name, print_map, print_btmap
+        HasName, load_json, load_json_btreemap, print_btmap
     }, tools::{Tool, ToolConfig}}};
 
-use config::{Config, Value};
-use crossterm::style::Stylize;
+use config::Config;
 use serde::de::DeserializeOwned;
 
 /// 
@@ -31,7 +30,7 @@ pub struct TaskTemplate {
     name : String,
     pub os : String,
     pub shell :String,
-    tasks : HashMap<String, Option<HashMap<String,Vec<String>>>> //Cursed nested structure >:()
+    tasks : BTreeMap<String, Option<BTreeMap<String,Vec<String>>>> //Cursed nested structure >:()
 }
 
 impl_has_name!(TaskTemplate);
@@ -46,7 +45,7 @@ impl CaseTemplate{
     pub fn load_from_json(path:&str) -> Result<CaseTemplate,Box<dyn std::error::Error>>
     {
         let data = std::fs::read_to_string(path)?;
-        let mut case_data: serde_json::Value = serde_json::from_str(&data)?;
+        let case_data: serde_json::Value = serde_json::from_str(&data)?;
         
         let task_template_path = case_data["task_template"].as_str()
             .ok_or("task_template path not found")?;
@@ -88,15 +87,22 @@ impl CaseTemplate{
 }
 
 impl TaskTemplate {
-    pub fn load_from_json<T>(path:&str) -> Result<HashMap<String, T>,Box<dyn std::error::Error>>
+    pub fn load_from_json<T>(path:&str) -> Result<BTreeMap<String, T>,Box<dyn std::error::Error>>
     where
         T: DeserializeOwned + Clone + Hash + Eq,
     {
-        load_json_hashmap(path)
+        load_json_btreemap(path)
     }
 
     pub fn list_tasks(&self) -> Vec<String> {
         self.tasks.keys().cloned().collect()
+    }
+
+    ///
+    /// Return the inner BTreeMap
+    /// 
+    pub fn tasks(&self) -> BTreeMap<String, Option<BTreeMap<String,Vec<String>>>>{
+        self.tasks.clone()
     }
 
     pub fn list_tasks_clean(&self) -> BTreeMap<String, String>{
@@ -105,7 +111,7 @@ impl TaskTemplate {
         for (i,v) in &self.tasks{
             let val = match v{
                 None => "None",
-                Some(a) => &print_map(&a)
+                Some(a) => &print_btmap(&a)
             };
 
             map.insert(i.clone(), val.to_string());
@@ -127,7 +133,7 @@ impl TaskTemplate {
         let mut v:Vec<_> = self.tasks.iter().collect();
         v.sort_by(|(a,_), (b,_)| a.cmp(b));
 
-        for (i,v) in v.iter(){
+        for (_i,v) in v.iter(){
             
             match v {
 
@@ -179,7 +185,7 @@ impl TaskTemplate {
         v.sort_by(|(a,_), (b,_)| a.cmp(b));
 
 
-        for (task,value) in v.iter(){
+        for (_task,value) in v.iter(){
 
             match value{
                 None => continue,
@@ -200,7 +206,12 @@ impl TaskTemplate {
                         }
 
                         for key in callkeyss.iter(){
-                            let cmd = tool.get_cmdline(key, &tool_config).unwrap();
+                            let cmd = match tool.get_cmdline(key, &tool_config){
+                                Some(s) => s,
+                                None => {
+                                    error!("The provided Call Key: {} Does not exist in the tool index >:() ",key);
+                                    exit(15)}
+                            };
                             res.push(cmd);
                         } 
                 }
@@ -222,7 +233,7 @@ impl TaskTemplate {
 
         //Function to extract the tool name of those to be used.
         //Alot of nested stuf since task:hashmap points to a hashmap of other tools and config to use. 
-        for (i,v) in self.tasks.iter(){
+        for (_i,v) in self.tasks.iter(){
             match v{
                 Some(map) => {
                     for k in map.keys(){

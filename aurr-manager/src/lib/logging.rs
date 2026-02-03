@@ -1,7 +1,6 @@
 //Module to handle all of the logging. Written by claudia Haiku 4.5. Pretty good and simple.
 use std::fs::File;
 use std::sync::Mutex;
-use tracing_subscriber::fmt::format::Writer;
 use std::io::Write;
 use chrono::{self, Local};
 

@@ -1,5 +1,5 @@
 {
-    "name" : "TestCaseNAme",
+    "name" : "Generic_Windows_Case",
     "hostname" : "Hostname",
     "task_template" : "/home/cyfjonass/aurr/aurr-manager/data/templates/windows_11_generic.json"
 }

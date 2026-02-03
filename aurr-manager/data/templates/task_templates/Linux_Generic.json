@@ -1,9 +1,9 @@
 {
     "name" : "Ubuntu Linux Generic Template",
     "os" : "Linux Ubuntu",
-    "shell" : "Powershell",
+    "shell" : "bash",
     "tasks" : {
-        "1 memory" : {"forensicstool" : ["Default_Forensicstool_Call"]},
+        "1 memory" : {"Surge-Collect-Linux" : ["Default_Linux_Upload_Azure"]},
         "2 triage" : null,
         "3 disk" : null,
         "4 other" : null

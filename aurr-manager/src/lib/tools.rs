@@ -1,7 +1,7 @@
+//Import from local crate
 use crate::{error, impl_has_name, lib::{aurr_core::{
         print_map,
         HasName,
-        load_json_hashmap,
         load_manyjson_hashmap_by_name}, 
     cloud_storage_managers::{CloudServiceManager,CloudServiceManagerTrait}}
 };
@@ -12,7 +12,7 @@ use tracing::info;
 use std::{fmt::{Debug, Display}, str::FromStr};
 
 //Module to handle the setup of all tools. 
-use std::{char::ToLowercase, clone, collections::HashMap};
+use std::collections::HashMap;
 use colored::{self, Colorize};
 
 
@@ -128,7 +128,7 @@ impl ToolConfig {
             None => None,
             Some(val) => {match T::from_str(val){
                 Ok(res) => Some(res),
-                Err(e) => None
+                Err(_) => None
             }}
                 
         }

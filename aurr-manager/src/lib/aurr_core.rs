@@ -1,11 +1,10 @@
-use crate::lib::{
-    azure::AzureStorageMgmt, cloud_storage_managers::{CloudResource, CloudServiceManager, CloudServiceManagerTrait}, template::CaseTemplate, tools::{MandatorySteps, Tool, ToolConfig}};
+use crate::{lib::{
+    azure::AzureStorageMgmt, cloud_storage_managers::{CloudResource, CloudServiceManager, CloudServiceManagerTrait}, template::CaseTemplate, tools::{MandatorySteps, Tool, ToolConfig}}};
 
 use azure_storage_blobs::container::Container;
-use colored::Colorize;
 use config::Config;
 use serde::de::DeserializeOwned;
-use tracing::error;
+use tracing::{error, info};
 use std::{
     collections::{BTreeMap, HashMap}, fmt::{Debug, Display}, fs::{self,DirEntry}, hash::Hash, str::FromStr
 };
@@ -105,7 +104,7 @@ impl OperatingSystem{
             }
         };
 
-        vec![format!("cd C:\\"),format!("rm -r {}",wd)]
+        vec![format!("cd ../../"),format!("rm -r {}",wd)]
     }
 }
 
@@ -136,7 +135,7 @@ pub struct ShellParser{
 }
 
 impl ShellParser {
-    pub fn new(shell:Shell, cmdlines:Vec<String>) -> ShellParser{
+    fn new(shell:Shell, cmdlines:Vec<String>) -> ShellParser{
         ShellParser { shell: shell, cmdlines : cmdlines }
     }
 
@@ -158,13 +157,8 @@ impl ShellParser {
                     oneliner.push_str(";");
                 }
                 Some(oneliner)
-            },
-            _ => {
-                error!("Defined shell: {:?} is not configurated yet. Do add support, edit aurr_core::ShellParser",self.shell);
-                None
             }
         }
-
     }
 }
 
@@ -235,6 +229,15 @@ pub fn load_json_hashmap<T>(path:&str) -> Result<HashMap<String,T>, Box<dyn std:
         Ok(values)
     }
 
+pub fn load_json_btreemap<T>(path:&str) -> Result<BTreeMap<String,T>, Box<dyn std::error::Error>>
+    where 
+    T : DeserializeOwned + Hash + Eq,
+    {
+        let data = fs::read_to_string(path)?;
+        let values: BTreeMap<String,T> = serde_json::from_str(&data)?;
+        Ok(values)
+    }
+
 /// 
 /// Function to load a jason dict as a hashmap where the "name" field
 /// is the key of the map. 
@@ -275,23 +278,17 @@ T: Debug
 pub fn print_btmap<K,T>(map:&BTreeMap<K,T>) -> String
 where
 K: Debug + Display,
-T: Debug + Display
+T: Debug
 {
     let mut s = String::new();
 
     for (key,val) in map.iter(){
         s.push_str("\n\t  ");
-        s.push_str(format!("{}:{}",key,val).replace("[\"\"]", "None").as_str());
+        s.push_str(format!("{}:{:?}",key,val).replace("[\"\"]", "None").as_str());
     };
 
     s
 }
-
-
-
-
-
-
 
 /// 
 /// The Aurr Core structure. 
@@ -335,8 +332,7 @@ impl AurrCore{
 
     pub fn mgr_as_azure(&self) -> Option<&AzureStorageMgmt>{
         match &self.cloudservicemanager{
-            CloudServiceManager::Azure(s) => Some(s),
-            _ => None
+            CloudServiceManager::Azure(s) => Some(s)
         }
     }
 
@@ -345,7 +341,9 @@ impl AurrCore{
         &self.cloudservicemanager
     }
 
-
+    ///
+    /// Function to upload a tool to a specific cloud
+    /// 
     pub async fn upload_tool(&self, tool:Tool) -> Result<CloudResource, Box<dyn std::error::Error>>{
         self.cloudservicemanager.upload(LocalResource::Tool(tool), "tools").await
     }
@@ -379,10 +377,9 @@ impl AurrCore{
     }
 
     ///
-    /// Function to take a set of tools 
-    ///     1. Cloudify them
+    /// Function to take a set of tasks
+    ///     1. Cloudify all the relevant tools
     ///     2. Produce a script to do the following:
-    /// 
     ///         a. Setup the enviroment on a remote system
     ///         b. Download the tools from the cloud
     ///         c. Runtime process required steps and additional resources
@@ -399,36 +396,48 @@ impl AurrCore{
         //Initiating a vector with the setup steps.
         let mut cmds:Vec<String> = os.get_setup(&config);
 
-        // Filtering so I only use the tools present in the task_template
-        // Very ugly workaround, but the following 3 lines will filter based on tools provided in the task template.
-        // Then it will sort all the tools based on task steps. This should have been done in another way.  
-        let filtered_tools = case_template.task_template.get_relevant_tools(tools);
-        //let mut ft_vec:Vec<(&String,&Tool)> = filtered_tools.iter().collect();
-        //ft_vec.sort_by(|(_,a),(_,b)|a.task.cmp(&b.task));
 
-        for (_name,tool) in filtered_tools.iter(){
 
-            //  Getting the tools config by both tool_name and the GENERAL CLOUD CONFIG
-            // Almost there where we can just pass the whole config in between, but that would be too simple and easy to understand. 
-            // Atleast this supports a new token generation for each execution. 
-            //      -> This means it will be easy/possible to track token to different collections. 
-            let mut tool_config = ToolConfig::from_config_by_tags(&config, vec![&tool.config_tag,"CLOUD","AZURE"]).unwrap();
+        //Not a very beutiful solution here, But it works. Another argument to rework everything >:()
+        for (_task,ss) in case_template.task_template.tasks().iter(){
 
-            self.generate_entry_toolconfig(&mut tool_config, tool).await.unwrap();
+            let sub_tasks = match ss.as_ref(){
+                Some(t) => t,
+                None => continue
+            };
 
-            //Cloudify and push the tool on the cmds vectord
-            let url = tool.cloudify(&self.get_mgmr(), &config).await.unwrap();
+            //Fetching the tool
+            for tool_name in sub_tasks.keys(){
+                let tool = match tools.get(tool_name){
+                    Some(t) => t,
+                    None => return Err(format!("Tool: {} Does not exist in the tool index",tool_name).into())
+                };
 
-            let down_template = config.get::<String>(&get_download_template(&case_template.task_template.shell).unwrap()).unwrap();
-            
-            //Since this is running in a linux enviroment, then path of the local file will be used to save the file to a given system.
-            let remote_download_filename = tool.localpath.split("/").last().unwrap();
+                let mut tool_config = ToolConfig::from_config_by_tags(&config, vec![&tool.config_tag,"CLOUD","AZURE"]).unwrap();
+                
+                info!("{}",case_template.name().to_string());
 
-            cmds.push(down_template
-                .replace("<URL>", &url)
-                .replace("<REMOTE_TOOL_FILE_NAME>", remote_download_filename));
+                //Chanign the upload container to a case specific location.AZURE_UPLOAD_CONTAINER_NAME
+                tool_config.edit_entry("CLOUD_DEFAULT_UPLOAD_LOCATION".to_string(), case_template.name().to_string().to_ascii_lowercase()).unwrap();
+                //tool_config.edit_entry("AZURE_UPLOAD_CONTAINER_NAME".to_string(), case_template.name().to_string().to_ascii_lowercase()).unwrap();
+                //tool_config.edit_entry("CLOUD_DEFAULT_UPLOAD_LOCATION".to_string(), "upload".to_string()).unwrap();
 
-            cmds.extend(case_template.build_task(tool, &tool_config));
+                self.generate_entry_toolconfig(&mut tool_config, tool).await.unwrap();
+
+                //Cloudify and push the tool on the cmds vectord
+                let url = tool.cloudify(&self.get_mgmr(), &config).await.unwrap();
+
+                let down_template = config.get::<String>(&get_download_template(&case_template.task_template.shell).unwrap()).unwrap();
+                
+                //Since this is running in a linux enviroment, then path of the local file will be used to save the file to a given system.
+                let remote_download_filename = tool.localpath.split("/").last().unwrap();
+                
+                cmds.push(down_template
+                    .replace("<URL>", &url)
+                    .replace("<REMOTE_TOOL_FILE_NAME>", remote_download_filename));
+
+                cmds.extend(case_template.build_task(tool, &tool_config));
+            }
         }
 
         cmds.extend(os.cleanup(&config));
@@ -442,7 +451,6 @@ impl AurrCore{
             }
         }
     }
-
 
     /// 
     /// A wrapper function around all the different mandatory steps.
@@ -562,12 +570,9 @@ impl AurrCore{
     /// 
     /// Wrapper function to generate a sas URI
     ///
-
     pub async fn gen_sas_upload_url(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>{
         self.get_mgmr().grant_upload_url(cloud_resource, timeout).await
-
     }
-
 }
 
 

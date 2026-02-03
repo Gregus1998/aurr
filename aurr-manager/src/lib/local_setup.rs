@@ -1,10 +1,7 @@
 // The local setup will be a module to create the folder structure locally. 
 // The goal will be that the raw executable can be exported to any system.
 
-use std::{fs, io::Read, process::exit};
-
-use config::File;
-
+use std::{fs,process::exit};
 /// root/
 ///     aurr.exe/aurr (Binary)
 ///     Config.toml
@@ -36,7 +33,7 @@ pub fn local_setup() -> std::io::Result<()>{
     };
 
     match fs::File::open("./Config.toml"){
-        Ok(file) => {
+        Ok(_) => {
             println!("ConfigFile DETECTED: ./Config.toml - By continuing you will lose this content.\nDo you want to continue? (yes/no)");
             let mut r = String::new();
             std::io::stdin().read_line(&mut r)?;
