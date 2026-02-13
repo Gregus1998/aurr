@@ -1,5 +1,5 @@
-use std::{collections::{BTreeMap, HashMap},hash::Hash, process::exit};
-
+use std::{collections::{BTreeMap, HashMap}, hash::Hash, process::exit};
+use std::fmt::Display;
 /*  A set of functions to parse and process the task template. 
     This will be used to make it more user friendly for anyone to use this.
     The following section should explain and document some of the features and rules. 
@@ -12,6 +12,7 @@ use crate::{error, impl_has_name, lib::{aurr_core::{
 
 use config::Config;
 use serde::de::DeserializeOwned;
+use tracing::info;
 
 /// 
 /// A case structure for the case template. 
@@ -44,13 +45,16 @@ impl CaseTemplate{
     ///  
     pub fn load_from_json(path:&str) -> Result<CaseTemplate,Box<dyn std::error::Error>>
     {
-        let data = std::fs::read_to_string(path)?;
-        let case_data: serde_json::Value = serde_json::from_str(&data)?;
+        let data = std::fs::read_to_string(path).unwrap();
+        let case_data: serde_json::Value = serde_json::from_str(&data).unwrap();
         
         let task_template_path = case_data["task_template"].as_str()
             .ok_or("task_template path not found")?;
         
-        let task_template: TaskTemplate = load_json(task_template_path)?;
+        let task_template: TaskTemplate = match load_json(task_template_path){
+            Ok(s) => s,
+            Err(e) => return Err(format!("Could not load task tempalte due to: {}",e.to_string()).into())
+        };
 
         let ct = CaseTemplate {
                 name : case_data["name"].as_str().unwrap_or("").to_string(),
@@ -75,10 +79,10 @@ impl CaseTemplate{
     ///
     /// Function to list a case template for the help meny
     /// 
-    pub fn ls_case(&self){
-        println!("
-        name: {},
-        hostname: {},
+    pub fn ls_case(&self) -> String{
+        format!("
+      name: {}
+      hostname: {}
         task_template: {}
         ", self.name,self.hostname,self.task_template)
     }
@@ -86,7 +90,9 @@ impl CaseTemplate{
 
 }
 
+
 impl TaskTemplate {
+
     pub fn load_from_json<T>(path:&str) -> Result<BTreeMap<String, T>,Box<dyn std::error::Error>>
     where
         T: DeserializeOwned + Clone + Hash + Eq,
@@ -272,7 +278,7 @@ impl std::fmt::Display for TaskTemplate {
         TaskName: {},
         OS: {},
         Shell: {},
-        Tasks:{}
+        Tasks: {}
         ",self.name.clone(),self.os,self.shell,print_btmap(&tasks));
         f.write_str(s.as_str())
     }

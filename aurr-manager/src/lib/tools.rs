@@ -9,7 +9,7 @@ use crate::{error, impl_has_name, lib::{aurr_core::{
 use config::{Config, Value};
 use serde::de::DeserializeOwned;
 use tracing::info;
-use std::{fmt::{Debug, Display}, str::FromStr};
+use std::{fmt::{Debug, Display}, fs, path::Path, str::FromStr};
 
 //Module to handle the setup of all tools. 
 use std::collections::HashMap;
@@ -152,17 +152,41 @@ impl_has_name!(Tool);
 
 impl Tool {
 
-    pub fn list_tool(&self, full:bool){
-        if full {
-            println!("
+    pub fn new_from_path(path:&str) -> Result<Tool, Box<dyn std::error::Error>>{
+
+        let apath = Path::new(path);
+
+        if !apath.exists(){
+            return Err("File does not exist! >:(".into())
+        }
+
+        //Collecting the basename as the name of the tool
+        let name = apath.file_name().unwrap().to_string_lossy().to_string();
+
+        //Creating a new tool.
+        Ok(Tool {
+            name: name.to_string(),
+            author:"".to_string(),
+            task: "".to_string(),
+            localpath: path.to_string(),
+            config_tag: name.to_string(),
+            mandatory_steps: None,
+            call: HashMap::new()
+        })
+    }
+
+    pub fn list_tool(&self, full:bool) -> String{
+        let s = if full {
+            format!("
             name: {},
             author {},
+            task: {}, 
             localpath: {},
             config_tag: {},
             exists: {},
             mandatory_steps: {}
             call_options: {}
-            ",self.name,self.author,self.localpath.clone(),self.config_tag,
+            ",self.name,self.author,self.task,self.localpath.clone(),self.config_tag,
                 match std::fs::File::open(self.localpath.clone()){
                     Ok(_) => "[TRUE]".green(),
                     Err(_) => "[FALSE]".red()
@@ -172,19 +196,22 @@ impl Tool {
             )
 
         }else {
-            println!("
+            format!("
             name: {},
             author {},
+            task: {},
             localpath: {},
             config_tag: {},
             Exists: {}
-            ",self.name,self.author,self.localpath.clone(),self.config_tag,
+            ",self.name,self.author,self.task,self.localpath.clone(),self.config_tag,
                 match std::fs::File::open(self.localpath.clone()){
                     Ok(_) => "[TRUE]".green(),
                     Err(_) => "[FALSE]".red()
                 }
             )
         };
+
+        return s;
 
     }
 
@@ -295,7 +322,7 @@ impl Tool {
             },
             
             Err(e) => {
-                error!("Could not upload tool: {} due to: {}",self.name, e);
+                error!("Could not upload tool: <{}> to container: <{}> due to: <{}>",self.name,cp,e);
                 return Err(format!("Could not upload tool: {} due to: {}",self.name, e).into());
             }
 

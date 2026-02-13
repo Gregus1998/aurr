@@ -1,5 +1,5 @@
 {
-    "name" : "Generic_Windows_Case",
+    "name" : "GenericWindowsCase",
     "hostname" : "Hostname",
-    "task_template" : "/home/cyfjonass/aurr/aurr-manager/data/templates/windows_11_generic.json"
+    "task_template" : "/home/cyfjonass/aurr/aurr-manager/data/templates/task_templates/Windows_Generic.json"
 }

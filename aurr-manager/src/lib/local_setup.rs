@@ -45,9 +45,7 @@ pub fn local_setup() -> std::io::Result<()>{
         },
         Err(_) => ()
     }
-
     
-
     //Creating some directories
     fs::create_dir_all("./data/tools")?;
     fs::create_dir_all("./data/templates/case_templates/")?;

@@ -1,3 +1,5 @@
+use tracing::info;
+
 use crate::lib::{
     aurr_core::{LocalResource,GetName},
     azure::{AzureCloudResource, AzureStorageMgmt}
@@ -183,6 +185,7 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
         
         match cloud_resource{
             CloudResource::AZURE(acr) => {
+                info!("{:?}",acr);
                 self.get_blob_download_url(None, acr, timeout).await
             }
         }

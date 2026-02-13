@@ -2,11 +2,12 @@ use crate::{lib::{
     azure::AzureStorageMgmt, cloud_storage_managers::{CloudResource, CloudServiceManager, CloudServiceManagerTrait}, template::CaseTemplate, tools::{MandatorySteps, Tool, ToolConfig}}};
 
 use azure_storage_blobs::container::Container;
+use colored::Colorize;
 use config::Config;
 use serde::de::DeserializeOwned;
 use tracing::{error, info};
 use std::{
-    collections::{BTreeMap, HashMap}, fmt::{Debug, Display}, fs::{self,DirEntry}, hash::Hash, str::FromStr
+    collections::{BTreeMap, HashMap}, fmt::{Debug, Display}, fs::{self,DirEntry}, hash::Hash, process::exit, str::FromStr
 };
 
 ///
@@ -275,16 +276,28 @@ T: Debug
     s
 }
 
+
+///
+/// Function to print out a btreemap. 
+/// Does introduce some strange event when BTreemap includes a betreemap.
+/// Dont know if it is possible to create a generic approach. 
+/// 
 pub fn print_btmap<K,T>(map:&BTreeMap<K,T>) -> String
 where
-K: Debug + Display,
+K: Debug + Display + Clone,
 T: Debug
 {
     let mut s = String::new();
 
     for (key,val) in map.iter(){
-        s.push_str("\n\t  ");
-        s.push_str(format!("{}:{:?}",key,val).replace("[\"\"]", "None").as_str());
+
+        s.push_str("\n\t");
+        s.push_str(format!("{:<12}:  {:?}",key, val)
+            .replace("\\n\\t", "")
+            .replace("\\\"", "")
+            .replace("[\"\"]", "None")
+            .replace("\"", "")
+            .as_str());
     };
 
     s
@@ -343,9 +356,15 @@ impl AurrCore{
 
     ///
     /// Function to upload a tool to a specific cloud
+    /// If a container is passed, the tool will be uploaded to this location
     /// 
-    pub async fn upload_tool(&self, tool:Tool) -> Result<CloudResource, Box<dyn std::error::Error>>{
-        self.cloudservicemanager.upload(LocalResource::Tool(tool), "tools").await
+    pub async fn upload_tool(&self, tool:Tool, container:Option<&str>) -> Result<CloudResource, Box<dyn std::error::Error>>{
+
+        match container{
+            Some(s) => self.cloudservicemanager.upload(LocalResource::Tool(tool), s).await,
+            None => self.cloudservicemanager.upload(LocalResource::Tool(tool), "tools").await
+        }
+        
     }
 
     ///
@@ -389,14 +408,12 @@ impl AurrCore{
     /// 
     pub async fn tools_push_execute(&self, tools:&mut HashMap<String,Tool>,case_template:CaseTemplate, config:&Config) -> Result<String, Box<dyn std::error::Error>>{
 
-
+        info!("Running <Tool Push Execute> for template: {}", case_template.name);
         //Fetching and converting the OS for the given task
         let os = OperatingSystem::from_str(&case_template.task_template.os).unwrap();
 
         //Initiating a vector with the setup steps.
         let mut cmds:Vec<String> = os.get_setup(&config);
-
-
 
         //Not a very beutiful solution here, But it works. Another argument to rework everything >:()
         for (_task,ss) in case_template.task_template.tasks().iter(){
@@ -414,8 +431,12 @@ impl AurrCore{
                 };
 
                 let mut tool_config = ToolConfig::from_config_by_tags(&config, vec![&tool.config_tag,"CLOUD","AZURE"]).unwrap();
-                
-                info!("{}",case_template.name().to_string());
+
+
+                if !case_template.name.chars().all(|c| c.is_ascii_alphabetic()){
+                    error!("CaseTemplate.Name needs to be ascii_alphanumeric -> Azure Cloud does not support container names outside of this bound.");
+                    return Err("Fix case template name plz".into())
+                }
 
                 //Chanign the upload container to a case specific location.AZURE_UPLOAD_CONTAINER_NAME
                 tool_config.edit_entry("CLOUD_DEFAULT_UPLOAD_LOCATION".to_string(), case_template.name().to_string().to_ascii_lowercase()).unwrap();
@@ -503,9 +524,6 @@ impl AurrCore{
             Some(s) => s,
             None => return Ok(())
         };
-
-        // Adding a tracking for if anything is happening here since rust does not support "match by substring search"
-        let mut did_somthing:bool = false;
 
         for parameter in generation_steps.iter(){
 

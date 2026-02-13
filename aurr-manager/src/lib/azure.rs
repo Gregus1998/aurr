@@ -469,7 +469,8 @@ impl AzureStorageMgmt {
                 Ok(val)
                 
             }
-            _ => return Err("Provided AzureCloudResource not supported yet".into())
+            
+            _ => return Err("Provided AzureCloudResource: <{}> not supported yet - Check spelling".into())
         }
 
     }

@@ -2,7 +2,7 @@
 {
     "name" : "Windows 11 MemoryDump Azure Cloud",
     "os" : "Windows",
-    "shell" : "bash",
+    "shell" : "Powershell",
     "tasks" : {
         "1 memory" : {
             "Surge-Collect-Windows" : ["Default_Windows_Upload_Azure"]
