@@ -75,7 +75,7 @@ pub enum CloudServiceManager{
 ///    - Add a trigger (when a cloud resource is done upload. Start to download the resource)
 /// 
 pub trait CloudServiceManagerTrait {
-    //async fn new(cloud_service_manager_type:CloudServiceManager, config:&Config) -> Result<CloudServiceManager, Box<dyn std::error::Error>>;
+    async fn new(cloud_service_manager_type:CloudServiceManager, config:&Config) -> Result<CloudServiceManager, Box<dyn std::error::Error>>;
     //async fn test_connection(&self) -> Results<bool, Box<dyn std::error::Error>>
     async fn upload(&self, resource:LocalResource, some_cloud_storage_path:&str) -> Result<CloudResource, Box<dyn std::error::Error>>;
     async fn grant_read_access(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>; 
