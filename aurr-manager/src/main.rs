@@ -207,6 +207,14 @@ impl ArgParser{
             exit(1337)
         }
 
+        if self.args.get(1).unwrap().ends_with("run-local-setup"){
+            match local_setup::local_setup(){
+                Err(e) => eprintln!("Local setup failed due to: {}",e.to_string()),
+                Ok(_) => ()
+            };
+            exit(1337)
+        }
+
         //Parsing the optional arguments
         match self.option_parser(){
             Ok(_) => (),
@@ -594,7 +602,7 @@ impl ArgParser{
                                     Some(s) => s
                                 };
 
-                                match std::fs::read_dir(self.get::<String>("DEFAULT_CASE_DIR").unwrap()){
+                                match std::fs::read_dir(self.config.as_ref().unwrap().get::<String>("DEFAULT_CASE_DIR").unwrap()){
                                     Ok(s) => {
 
                                         for e in s.flatten(){
@@ -892,8 +900,7 @@ impl ArgParser{
             Some(conf) => conf,
             None => &a
         };
-
-
+        
         let tools = Tool::load_from_json(toolconfig).unwrap();
         Ok(tools)
     }

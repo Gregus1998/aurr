@@ -11,9 +11,11 @@ use std::{fs,process::exit};
 /// 
 
 const DEFAULT_CONFIG: &str = include_str!("../../../aurr-manager/data/custom/Config.toml");
-const DEFAULT_TOOLS_TEMPALTE: &[u8] = include_bytes!("../../../aurr-manager/data/custom/Tools.json");
-const DEFAULT_CASE_TEMPALTE: &[u8] = include_bytes!("../../../aurr-manager/data/custom/CaseTemplate.json");
-const DEFAULT_TASK_TEMPALTE: &[u8] = include_bytes!("../../../aurr-manager/data/custom/TaskTemplate.json");
+const DEFAULT_TOOLS_TEMPALTE: &[u8] = include_bytes!("../../../aurr-manager/data/custom/tools.json");
+const DEFAULT_WINDOWS_CASE_TEMPLATE: &[u8] = include_bytes!("../../../aurr-manager/data/templates/case_templates/windows_case_template.json");
+const DEFAULT_LINUX_CASE_TEMPLATE: &[u8] = include_bytes!("../../../aurr-manager/data/templates/case_templates/linux_case_template.json");
+const DEFAULT_WINDOWS_TASK_TEMPLATE: &[u8] = include_bytes!("../../../aurr-manager/data/templates/task_templates/Windows_Generic.json");
+const DEFAULT_LINUX_TASK_TEMPLATE: &[u8] = include_bytes!("../../../aurr-manager/data/templates/task_templates/Linux_Generic.json");
 const DEFAULT_README:&str = include_str!("../../../aurr-manager/data/custom/README.md");
 
 ///
@@ -54,9 +56,11 @@ pub fn local_setup() -> std::io::Result<()>{
     //Writing the content to different files. 
     fs::write("./Config.toml", DEFAULT_CONFIG)?;
     fs::write("README.md", DEFAULT_README)?;
-    fs::write("./data/templates/Tools.json", DEFAULT_TOOLS_TEMPALTE)?;
-    fs::write("./data/templates/case_templates/CaseTemplate.json", DEFAULT_CASE_TEMPALTE)?;
-    fs::write("./data/templates/task_templates/TaskTemplate.json", DEFAULT_TASK_TEMPALTE)?;
+    fs::write("./data/templates/tools.json", DEFAULT_TOOLS_TEMPALTE)?;
+    fs::write("./data/templates/case_templates/windows_case_template.json", DEFAULT_WINDOWS_CASE_TEMPLATE)?;
+    fs::write("./data/templates/case_templates/linux_case_template.json", DEFAULT_LINUX_CASE_TEMPLATE)?;
+    fs::write("./data/templates/task_templates/windows_task_template.json", DEFAULT_WINDOWS_TASK_TEMPLATE)?;
+    fs::write("./data/templates/task_templates/linux_task_template.json", DEFAULT_LINUX_TASK_TEMPLATE)?;
 
     Ok(())
 }

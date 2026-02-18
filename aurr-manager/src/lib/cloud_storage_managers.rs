@@ -1,3 +1,4 @@
+use config::Config;
 use tracing::info;
 
 use crate::lib::{
@@ -66,8 +67,16 @@ impl CloudResource {
 pub enum CloudServiceManager{
     Azure(AzureStorageMgmt)
 }
-
+///
+/// TODO: Should implement the following trait: 
+///    - New(type, config) -> see how this is called in aurr_core
+///    - Download 
+///    - Monitor a cloud resource
+///    - Add a trigger (when a cloud resource is done upload. Start to download the resource)
+/// 
 pub trait CloudServiceManagerTrait {
+    //async fn new(cloud_service_manager_type:CloudServiceManager, config:&Config) -> Result<CloudServiceManager, Box<dyn std::error::Error>>;
+    //async fn test_connection(&self) -> Results<bool, Box<dyn std::error::Error>>
     async fn upload(&self, resource:LocalResource, some_cloud_storage_path:&str) -> Result<CloudResource, Box<dyn std::error::Error>>;
     async fn grant_read_access(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>; 
     async fn grant_upload_token(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>;
@@ -170,7 +179,6 @@ impl CloudServiceManager {
     }
 }
 
-
 ///This implement should be moved to azure.rs
 impl CloudServiceManagerTrait for AzureStorageMgmt {
 
@@ -223,7 +231,6 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
         }
     }
 
-
     ///
     /// Trait Function to grant a upload url to any type of azure cloud resource
     /// 
@@ -241,7 +248,6 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
 
         }
     }
-
 
     ///
     /// Trait function to get the name of azure storage account

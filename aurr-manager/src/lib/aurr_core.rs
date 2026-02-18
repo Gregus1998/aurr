@@ -163,7 +163,6 @@ impl ShellParser {
     }
 }
 
-
 pub trait GetName{
     fn get_name(&self) -> String;
 }
@@ -312,11 +311,23 @@ T: Debug
 /// 
 pub struct AurrCore {
     cloudservicemanager: CloudServiceManager,
-    config:Config
+    config:Config,
+    //cloudservicemanagers: HashMap<String,CloudServiceManager>
+
 }
+
+
+
 
 impl AurrCore{
 
+    ///
+    /// New functin to create an empty shell
+    /// Need to add different types of carriers/cloudmanagers
+    /// 
+    //pub fn new(config:&Config) -> AurrCore{
+      //  AurrCore { cloudservicemanager: (), config: config.clone(), }//carriers: HashMap::new()}
+    //}
     pub fn new_from_sas(config:&Config) -> AurrCore{
 
         AurrCore{
@@ -476,7 +487,6 @@ impl AurrCore{
     /// 
     /// A wrapper function around all the different mandatory steps.
     /// 
-    ///  
     pub async fn process_mandatory_step(&self, tool:&Tool, config:&mut ToolConfig, ms:MandatorySteps) -> Option<Vec<String>>{
 
         //If the function is called without any steps -> None is returned
@@ -506,7 +516,6 @@ impl AurrCore{
 
         Some(steps)
     }
-
 
     ///
     /// Function to handle all the different processing steps for config variable generation steps. 
