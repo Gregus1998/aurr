@@ -798,7 +798,11 @@ impl ArgParser{
                                     Requires: --account-key
 
     Run-Case                    // Process a case-template. 
-                                    Requires: MA + --case-template
+                                    Requires: --account-key
+                                    
+                                    Call Options:
+                                        - run-case <Path/To/CaseTemplate.json>
+                                        - --case=<Path/To/CaseTemplate.json> run-case
 
                                     Can be used to full automate a wide set of remote tasks.
                                         - Collect Memory
@@ -814,10 +818,9 @@ impl ArgParser{
                                         - tools::<filter>        // List all available tools based on the provided config
                                         - case::<filter>         // List information from the provided case - This prints task tempalte aswell!
                                         - config                 // List current running config. Same as \"print-config\"
-                                        - cloud (TODO)           // List basic info about the connected cloud
                                         - container::<filter>    // List available container for the specific azure storage account
-                                        - blobs (TODO)
-                                        - search container::<filter>       
+                                        - blobs (TODO)           // TODO
+                                        - csm                    // List the status of each of the applied CloudServiceManagers and check if it is reachable
     
     print-config                //prints the current running config.
 
