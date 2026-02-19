@@ -1,6 +1,8 @@
 //Imported modules
 mod lib;
 
+use colored::Colorize;
+use crossterm::style::Stylize;
 //Imports:
 use lib::aurr_core::AurrCore;
 use lib::template::*;
@@ -240,6 +242,10 @@ impl ArgParser{
         let switch_options = self.args.split_at(2).1.to_owned();
 
         match switch.as_str(){
+
+            "version" => {
+                ArgParser::print_version();
+            }
 
             "run-local-setup" => {
                 match local_setup::local_setup(){
@@ -761,14 +767,8 @@ impl ArgParser{
 
     pub fn print_help(){
 
+        ArgParser::print_version();
         println!("
-+-----------------------------------------------+
-|                                               |
-|       AURR - A Yggdrasil soil project.        |
-|       Version: 1.0                            |
-|       POC: Jonas S (Mr.Bøttehatt)                           |
-|                                               |
-+-----------------------------------------------+
 +--------+
 | Syntax |
 +--------+
@@ -867,6 +867,39 @@ impl ArgParser{
         exit(1337)
     }
     
+    pub fn print_version(){
+
+        println!(
+"
++---------------------------------------------------------------+
+|                    &   &%   &&                                |
+|                    && &&  & && && &                           |
+|                && &///&|& ()|/ @, && &                        |
+|                &//(/&/&||/& /_/)_&/_& && &&                   |
+|            &() &///&|()|/&// '% // () &  &                    |
+|            &_&_&&_& |& |&&/&__//_/_& && &&                    |
+|            &&   && & &| &| /|| & % ()& /&& &                  |
+|        ()&_---////&//|&&-&&--%///-()~                         |
+|            &&     |||||///                                    |
+|                        ||||                                   |
+|                        |||/                                   |
+|                        ||||/                                  |
+|                        |||||||                                |
+|                    /||||||||||||//                            |
+|     -=-~, -=-~ //-^-//|| ,||-=-~ //_//-~  .-^ , -=-~  .-^     |  
+| ///-()~///-() {}  -~ //-~. //-~-~ . |
+| || ,||-=-~ // {}//-//-~. //-~-~~  |
+|  -~  .-^- ~- ~{} //-^-///-~.      |
+|-~, -=-~ //-^-///-~. //-~-~/|| ,-~, //-~.// -~-~-=-~ //-^-// , |
++---------------------------------------------------------------+    
+|    An Yggdrasil soil project                                  |
+|     Version 1.0                                               |
+|     By: Jonas Sørensen                                        |
++---------------------------------------------------------------+
+", "▄████▄ ██  ██ █████▄  █████▄".dark_green(),"██▄▄██ ██  ██ ██▄▄██▄ ██▄▄██▄ ".dark_green(), "██  ██ ▀████▀ ██   ██ ██   ██ ".dark_cyan())
+
+    }
+
     ///
     /// Just a function to print a error if LS is used wrong :)
     pub fn print_ls_error(){
