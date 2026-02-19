@@ -467,6 +467,8 @@ impl ArgParser{
 
             "grant-access" => {
 
+                let lsoption = &switch_options[0].split("::").collect::<Vec<&str>>();
+
                 self.init_mgmr().await.unwrap();
 
                 let cr = match self.options.get("cloud-resource"){
@@ -483,6 +485,8 @@ impl ArgParser{
                         }
                     }
                 };
+
+                println!("{}",cr);
 
                 let ct = self.aurr_mgmr.as_ref().unwrap().get_mgmr().get_type();
 

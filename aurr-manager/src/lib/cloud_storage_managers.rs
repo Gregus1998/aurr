@@ -55,7 +55,7 @@ impl CloudResource {
 
         match cloud_type {
 
-            "Azure-CLOUD" => {
+            "Azure" => {
                 match AzureCloudResource::from_path(path){
                     Ok(a) => return Ok(CloudResource::Azure(a)),
                     Err(e) => return Err(e.to_string().into())

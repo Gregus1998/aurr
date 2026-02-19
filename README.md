@@ -108,7 +108,6 @@ A given tool entry needs to be provided for each of the tools to be used. Here a
 -> Bad stuff: SOME_VALID_CONFIG_VARIABLE = $(Command for reverse shell >:( ) -> IF this is passed to the remote target, the tool will probably crash, but a remote shell will be spawned. 
 
 
- 
 ## Tips and Triks: .devcontainer/devcontainer.json
 
 Dont know if we need: .devcontainer/devcontainer.json 
