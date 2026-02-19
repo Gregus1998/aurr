@@ -1,28 +1,38 @@
 use config::Config;
 use tracing::info;
 
-use crate::lib::{
-    aurr_core::{LocalResource,GetName},
+use crate::{error, lib::{
+    aurr_core::{GetName, LocalResource},
     azure::{AzureCloudResource, AzureStorageMgmt}
-};
+}};
+
+///
+/// Just a enum to list all possible carriers / Cloud Managers.
+/// 
+pub enum CloudTypes{
+    Azure,
+    S3,
+}
 
 ///
 /// Enum to store and structure all the different types of cloud resources
 ///     -> Guess this can become handy if we add support or change to another cloud provider in the future
 /// 
 pub enum CloudResource {
-    AZURE(AzureCloudResource)   
+    Azure(AzureCloudResource)   
 }
+
 impl CloudResource {
+
 
     pub fn as_azure(&self) -> Option<&AzureCloudResource>{
         match self {
-            CloudResource::AZURE(azure) => Some(azure)
+            CloudResource::Azure(azure) => Some(azure)
         }
     }
     pub fn get_type(&self) -> String{
         match self{
-            CloudResource::AZURE(_) => "AZURE".to_string()
+            CloudResource::Azure(_) => "Azure".to_string()
         }
     }
 
@@ -32,7 +42,7 @@ impl CloudResource {
     /// 
     pub fn get_info(&self) -> Option<String>{
         match self{
-            CloudResource::AZURE(acr) => format!("{}/{}", 
+            CloudResource::Azure(acr) => format!("{}/{}", 
             match acr.get_container_name(){
                 Some(cn) => cn,
                 None => "N/A".to_string()
@@ -45,9 +55,9 @@ impl CloudResource {
 
         match cloud_type {
 
-            "AZURE-CLOUD" => {
+            "Azure-CLOUD" => {
                 match AzureCloudResource::from_path(path){
-                    Ok(a) => return Ok(CloudResource::AZURE(a)),
+                    Ok(a) => return Ok(CloudResource::Azure(a)),
                     Err(e) => return Err(e.to_string().into())
                 }
             },
@@ -67,6 +77,7 @@ impl CloudResource {
 pub enum CloudServiceManager{
     Azure(AzureStorageMgmt)
 }
+
 ///
 /// TODO: Should implement the following trait: 
 ///    - New(type, config) -> see how this is called in aurr_core
@@ -75,14 +86,14 @@ pub enum CloudServiceManager{
 ///    - Add a trigger (when a cloud resource is done upload. Start to download the resource)
 /// 
 pub trait CloudServiceManagerTrait {
-    async fn new(cloud_service_manager_type:CloudServiceManager, config:&Config) -> Result<CloudServiceManager, Box<dyn std::error::Error>>;
-    async fn test_connection(&self) -> Results<bool, Box<dyn std::error::Error>>
+    async fn test_connection(&self) -> Result<bool, Box<dyn std::error::Error>>;
     async fn upload(&self, resource:LocalResource, some_cloud_storage_path:&str) -> Result<CloudResource, Box<dyn std::error::Error>>;
     async fn grant_read_access(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>; 
     async fn grant_upload_token(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>;
     async fn grant_upload_url(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>;
     fn get_name(&self) -> String;
     fn get_type(&self) -> String;
+    fn get_info(&self) -> String;
 
     async fn list_containers(&self) -> Result<Vec<String>, Box<dyn std::error::Error>>;
     async fn list_blobs_container(&self, container_name:&str) -> Result<Vec<String>, Box<dyn std::error::Error>>;
@@ -96,10 +107,16 @@ pub trait CloudServiceManagerTrait {
 /// 
 impl CloudServiceManagerTrait for CloudServiceManager{
 
+    async fn test_connection(&self) -> Result<bool, Box<dyn std::error::Error>> {
+        match self{
+            CloudServiceManager::Azure(asm) => asm.test_connection().await
+        }
+    }
+
     async fn upload(&self, resource:LocalResource, some_cloud_storage_path:&str) -> Result<CloudResource, Box<dyn std::error::Error>> {
         match self{
             CloudServiceManager::Azure(asm) => Ok(
-                CloudResource::AZURE(
+                CloudResource::Azure(
                     asm.upload_resource(&resource, &resource.get_name(),some_cloud_storage_path, true).await.unwrap()))
         }
     }
@@ -138,6 +155,12 @@ impl CloudServiceManagerTrait for CloudServiceManager{
         
     }
 
+    fn get_info(&self) -> String {
+        match self{
+            CloudServiceManager::Azure(acm) => acm.get_info()
+        }
+    }
+
     async fn list_containers(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         match self{
             CloudServiceManager::Azure(acm) => {
@@ -164,6 +187,26 @@ impl CloudServiceManagerTrait for CloudServiceManager{
 
 impl CloudServiceManager {
 
+    pub fn new(cloud_type:CloudTypes, config:&Config) -> Result<CloudServiceManager, Box<dyn std::error::Error>> {
+        
+        match cloud_type{
+            
+            CloudTypes::Azure => {
+                Ok(
+                    CloudServiceManager::Azure({
+                        AzureStorageMgmt::from_access_key(
+                            config.get::<String>("AZURE_ACCOUNT_STORAGE_NAME").unwrap().as_str(),
+                            config.get::<String>("AZURE_ACCESS_KEY").unwrap().as_str()
+                            ).unwrap()}
+                        )       
+                )
+            },
+            _ => Err("The provided cloud type is not supported".into())
+        }
+
+
+    }
+
     //Function to convert self as Option<&AzureStorageMgmt>
     pub fn as_azure(&self) -> Option<&AzureStorageMgmt>{
         match &self{
@@ -179,12 +222,23 @@ impl CloudServiceManager {
     }
 }
 
+
 ///This implement should be moved to azure.rs
 impl CloudServiceManagerTrait for AzureStorageMgmt {
 
+    async fn test_connection(&self) -> Result<bool, Box<dyn std::error::Error>> {
+        match self.check_connection().await{
+            Ok(_) => Ok(true),
+            Err(e) => {
+                error!("Connection Check to Azure Cloud Failed due to {}",e.to_string());
+                Ok(false)
+            }
+        }
+    }
+
     async fn upload(&self, resource:LocalResource, some_cloud_storage_path:&str) -> Result<CloudResource, Box<dyn std::error::Error>> {
         Ok(
-            CloudResource::AZURE(
+            CloudResource::Azure(
                 self.upload_resource(&resource, &resource.get_name(),some_cloud_storage_path, true).await.unwrap()
         ))
     }
@@ -192,8 +246,7 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
     async fn grant_read_access(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>{
         
         match cloud_resource{
-            CloudResource::AZURE(acr) => {
-                info!("{:?}",acr);
+            CloudResource::Azure(acr) => {
                 self.get_blob_download_url(None, acr, timeout).await
             }
         }
@@ -226,7 +279,7 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
                     To fix this, add a implementation in impl 'CloudServiceManagerTrait for AzureStorageMgmt::grant_upload_token()'").into())
                 }
             },
-            None => return Err(format!("Provided mismatch cloud resource {} for AZURE cloud",cloud_resource.get_type()).into())
+            None => return Err(format!("Provided mismatch cloud resource {} for Azure cloud",cloud_resource.get_type()).into())
 
         }
     }
@@ -236,7 +289,7 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
     /// 
     async fn grant_upload_url(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>> {
         match cloud_resource{
-            CloudResource::AZURE(cr) => {
+            CloudResource::Azure(cr) => {
                 let t:String = match cr{
                     AzureCloudResource::Container(con) => {
                         self.gem_upload_container_url(&con, timeout).await?
@@ -258,11 +311,21 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
     }
 
     ///
-    /// Trait function to return "AZURE-CLOUD"
+    /// Trait function to return "Azure-CLOUD"
     /// Used runtime to display information
     /// 
     fn get_type(&self) -> String {
-        "AZURE-CLOUD".to_string()
+        "Azure".to_string()
+    }
+
+
+    /// 
+    /// Trait Function to get metadata about the azure manager.
+    /// 
+    fn get_info(&self) -> String {
+
+
+        format!("via Azure Storage Cloud: <Account: {}>", self.account_name)
     }
 
     ///

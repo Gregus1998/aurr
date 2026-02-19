@@ -1,5 +1,3 @@
-use std::{collections::{BTreeMap, HashMap}, hash::Hash, process::exit};
-use std::fmt::Display;
 /*  A set of functions to parse and process the task template. 
     This will be used to make it more user friendly for anyone to use this.
     The following section should explain and document some of the features and rules. 
@@ -12,7 +10,7 @@ use crate::{error, impl_has_name, lib::{aurr_core::{
 
 use config::Config;
 use serde::de::DeserializeOwned;
-use tracing::info;
+use std::{collections::{BTreeMap, HashMap}, hash::Hash, process::exit};
 
 /// 
 /// A case structure for the case template. 
@@ -268,6 +266,9 @@ impl TaskTemplate {
 
 }
 
+/// 
+/// Implementation of the display for TaskTemplate
+/// 
 impl std::fmt::Display for TaskTemplate {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

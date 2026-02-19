@@ -14,6 +14,8 @@ use azure_storage_blobs::
     };
 use azure_storage::{prelude::*, shared_access_signature::service_sas::BlobSharedAccessSignature};
 use futures::{stream::StreamExt};
+use reqwest;
+
 
 /// Enum to store the different types of blobs 
 #[derive(Debug)]
@@ -188,6 +190,9 @@ impl AzureStorageMgmt {
         }
     }
 
+    /// 
+    /// Function to get the container client for a given container_name
+    /// 
     pub async fn get_container_client(&self, container_name:&str) -> Result<ContainerClient,Box<dyn std::error::Error>>{
 
         let container_client = self.bsc.container_client(container_name);
@@ -215,6 +220,9 @@ impl AzureStorageMgmt {
             
     }
 
+    /// 
+    /// A function to list the blobs within a target container_name
+    /// 
     pub async fn list_blobs(&self, container_name:&str) -> Result<Vec<Blob>, Box<dyn std::error::Error>>{
 
         //Function to get a Result<Vec<Blob>, Box<dyn std::error::Error>> of all blob-objects in a provided container_name:&str
@@ -403,7 +411,6 @@ impl AzureStorageMgmt {
 
     }
 
-
     ///
     /// Function to get the download url for AZURE blobs given a AzureCloudResource
     /// \n Need to provide a combination of containeroption + t_resource where it is possible to extract the desired container.
@@ -474,4 +481,31 @@ impl AzureStorageMgmt {
         }
 
     }
+
+    /// 
+    /// A fucntion to check if it is possible to reach the azure cloud. 
+    /// Checks if you can reach the Azure cloud + if the basic api works.
+    /// Can update this to test for different types of permissions. 
+    /// 
+    pub async fn check_connection(&self) -> Result<(), Box<dyn std::error::Error>>{
+
+        let url = format!("https://{}.blob.core.windows.net/", self.account_name);
+
+        match reqwest::Client::new()
+            .head(url)
+            .send().await{
+                Ok(s) => {()
+                },
+                Err(e) => return Err(format!("Network Error! {}",e.to_string()).into())
+            }
+
+        match self.list_containers().await{
+            Ok(_) => {},
+            Err(e) => return Err(format!("API issues - {}",e.to_string()).into())
+        };
+
+        Ok(())
+    }
+
+
 }

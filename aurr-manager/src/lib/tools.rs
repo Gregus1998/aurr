@@ -9,7 +9,7 @@ use crate::{error, impl_has_name, lib::{aurr_core::{
 use config::{Config, Value};
 use serde::de::DeserializeOwned;
 use tracing::info;
-use std::{fmt::{Debug, Display}, fs, path::Path, str::FromStr};
+use std::{fmt::{Debug, Display}, path::Path, str::FromStr};
 
 //Module to handle the setup of all tools. 
 use std::collections::HashMap;

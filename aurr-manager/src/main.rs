@@ -1,34 +1,23 @@
 //Imported modules
 mod lib;
-use azure_storage_blobs::prelude::BlobClient;
-use config::ConfigBuilder;
+
 //Imports:
 use lib::aurr_core::AurrCore;
-use lib::azure;
 use lib::template::*;
 use lib::logging::Logger;
 use config::{Config, File, FileFormat};
-use once_cell::sync::Lazy;
-use lib::tools::{Tool,ToolConfig};
+use lib::tools::{Tool};
 use std::collections::HashMap;
 use std::env;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::io::{self, Write};
-use std::process::ExitCode;
 use std::process::exit;
 use serde::Deserialize;
 
-use crate::lib::aurr_core::print_map;
 use crate::lib::cloud_storage_managers::CloudResource;
 use crate::lib::cloud_storage_managers::CloudServiceManagerTrait;
-use crate::lib::template;
 use crate::lib::local_setup;
-
-
-
-//Global variables. Should not be read!
-static mut LOGDIR: Lazy<String> = Lazy::new(||String::new());
 
 /// Function to load the config.toml
 /// This function gets called first time in the main. 
@@ -175,12 +164,12 @@ impl ArgParser{
     /// A function to check the account key and init the connection to cloud
     /// 
     
-    fn init_mgmr(&mut self) -> Result<(), Box<dyn std::error::Error>>{
+    async fn init_mgmr(&mut self) -> Result<(), Box<dyn std::error::Error>>{
 
         self.check_add_account_key()?;
         //this will just create a new azyre clloud thingy. Need to add a support based on a config here. 
-        self.aurr_mgmr = Some(AurrCore::new_from_ac(&self.config.as_ref().unwrap()));
-        Ok(())   
+        self.aurr_mgmr = Some(AurrCore::new(&self.config.as_ref().unwrap()).await?);
+        Ok(())
     }
 
     ///
@@ -264,7 +253,7 @@ impl ArgParser{
 
             //Switch-case for upload
             "upload" => {
-                self.init_mgmr().unwrap();
+                self.init_mgmr().await.unwrap();
                 let lsoption = &switch_options[0].split("::").collect::<Vec<&str>>();
 
                 match *lsoption.first().unwrap(){
@@ -319,7 +308,7 @@ impl ArgParser{
 
 
                             for t in files.iter(){
-                                let ttool = match Tool::new_from_path(t){
+                                let _ttool = match Tool::new_from_path(t){
                                     Ok(val) => val,
                                     Err(e) => {
                                         error!("Could not toolify path: {} due to: {}", t,e.to_string());
@@ -344,7 +333,7 @@ impl ArgParser{
 
             "cloudify" => {
 
-                self.init_mgmr().unwrap();
+                self.init_mgmr().await.unwrap();
 
                 let lsoption = &switch_options[0].split("::").collect::<Vec<&str>>();
 
@@ -435,7 +424,7 @@ impl ArgParser{
 
             "run-case" => {
 
-                self.init_mgmr().unwrap();
+                self.init_mgmr().await.unwrap();
 
                 let mut tools = self.load_tools().unwrap();
 
@@ -478,11 +467,7 @@ impl ArgParser{
 
             "grant-access" => {
 
-                let lsoption = &switch_options[0].split("::").collect::<Vec<&str>>();
-
-
-
-                self.init_mgmr().unwrap();
+                self.init_mgmr().await.unwrap();
 
                 let cr = match self.options.get("cloud-resource"){
                     Some(s) => &s.replace("::", "/"),
@@ -643,7 +628,7 @@ impl ArgParser{
 
                     "container" => {
 
-                        self.init_mgmr().unwrap();
+                        self.init_mgmr().await.unwrap();
 
                         // if any filter is passed. Fix the option.
                         match lsoption.get(1){
@@ -694,6 +679,11 @@ impl ArgParser{
                         
                     }
         
+                    "csm" => {
+                        self.init_mgmr().await?;
+                        println!("{}",self.aurr_mgmr.as_ref().unwrap().list_managers().await.unwrap());
+                    } 
+
                     _ => {
                         ArgParser::print_ls_error();
                         exit(10)

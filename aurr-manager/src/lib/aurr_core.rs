@@ -1,12 +1,15 @@
-use crate::{lib::{
-    azure::AzureStorageMgmt, cloud_storage_managers::{CloudResource, CloudServiceManager, CloudServiceManagerTrait}, template::CaseTemplate, tools::{MandatorySteps, Tool, ToolConfig}}};
+use crate::lib::{
+    azure::AzureStorageMgmt, cloud_storage_managers::{CloudResource, CloudServiceManager, CloudServiceManagerTrait, CloudTypes}, template::CaseTemplate, tools::{MandatorySteps, Tool, ToolConfig}};
 
+use azure_core::error;
 use azure_storage_blobs::container::Container;
-use colored::Colorize;
+use colored::{self, Colorize};
 use config::Config;
 use serde::de::DeserializeOwned;
 use tracing::{error, info};
+use tracing_subscriber::fmt::format;
 use std::{
+    error::Error,
     collections::{BTreeMap, HashMap}, fmt::{Debug, Display}, fs::{self,DirEntry}, hash::Hash, process::exit, str::FromStr
 };
 
@@ -310,13 +313,10 @@ T: Debug
 ///     -> Some random condig file that needs to include all you need to interact with the cloud and the desired tools. 
 /// 
 pub struct AurrCore {
-    cloudservicemanager: CloudServiceManager,
     config:Config,
-    //cloudservicemanagers: HashMap<String,CloudServiceManager>
-
+    cloudservicemanagers: HashMap<String,CloudServiceManager>,
+    csm:String
 }
-
-
 
 
 impl AurrCore{
@@ -325,44 +325,105 @@ impl AurrCore{
     /// New functin to create an empty shell
     /// Need to add different types of carriers/cloudmanagers
     /// 
-    //pub fn new(config:&Config) -> AurrCore{
-      //  AurrCore { cloudservicemanager: (), config: config.clone(), }//carriers: HashMap::new()}
-    //}
-    pub fn new_from_sas(config:&Config) -> AurrCore{
+    pub async fn new(config:&Config) -> Result<AurrCore, Box<dyn Error>>{
+        let mut aurr = AurrCore {config: config.clone(), cloudservicemanagers: HashMap::new(), csm: String::new()};
+        
+        //Adding the default azure CloudManager
+        aurr.add_cloud_manager(CloudTypes::Azure, None).unwrap();
 
-        AurrCore{
-            cloudservicemanager : CloudServiceManager::Azure({
-                AzureStorageMgmt::new(
-                    config.get::<String>("AZURE_ACCOUNT_STORAGE_NAME").unwrap().as_str(),
-                     config.get::<String>("AZURE_SAS_TOKEN").unwrap().as_str()
-                    ).unwrap()}
-            ),
-            config: config.clone()
-        }
+        Ok(aurr)
     }
 
-    pub fn new_from_ac(config:&Config) -> AurrCore{
+    /// 
+    /// A function to add/Registrer a new cloud service manager. 
+    /// If a opt_config is provided this will be used to spawn the manager, 
+    /// If a config is not passed, the global config will be used.
+    ///  
+    pub fn add_cloud_manager(&mut self, cloud_type:CloudTypes ,opt_config:Option<&Config>) -> Result<(), Box<dyn std::error::Error>>{
 
-        AurrCore{
-            cloudservicemanager : CloudServiceManager::Azure({
-                AzureStorageMgmt::from_access_key(
-                    config.get::<String>("AZURE_ACCOUNT_STORAGE_NAME").unwrap().as_str(),
-                     config.get::<String>("AZURE_ACCESS_KEY").unwrap().as_str()
-                    ).unwrap()}
-            ),
-            config: config.clone()
+        // Finding the correct config, if a opt_config is not passed, the program should try to use the currently running config
+        let conf = match opt_config{
+            Some(c) => c,
+            None => &self.config
+        };
+
+        let mgmr = CloudServiceManager::new(cloud_type, &conf)?;
+        //Creating a key for the specific manager. 
+        let key = format!("{}_{}", mgmr.get_type(), mgmr.get_name());
+        match self.cloudservicemanagers.insert(key.clone(), mgmr){
+            None => {
+                self.set_csm(&key).unwrap();
+                info!("CloudServiceManger: <{}> set as the running git manager!",key);
+            },
+
+            Some(_) => {
+                info!("CloudServiceManager <{}> was overwritten by a new CloudServiceManager",key);
+            }
         }
+
+        Ok(())
     }
 
+    ///
+    /// A function to list all the managers present in the CloudserviceManger variable. 
+    /// Should list manager name and run a function to collect some basic info. 
+    /// 
+    pub async fn list_managers(&self) -> Result<String,Box<dyn Error>>{
+
+        let mut s = String::new();
+
+        for (key,val) in self.cloudservicemanagers.iter(){
+
+            let reachable = match val.test_connection().await{
+                Ok(bool) => {
+
+                    match bool{
+                        true => "REACHABLE".green(),
+                        false => "UNREACHABLE".red()
+                    }
+
+                },
+                Err(e) => "ERROR".yellow()
+
+            };
+
+            let ss = format!("{} -> {} - [{:}]", key, val.get_info(), reachable);
+            s.push_str(&ss);
+        };
+
+        Ok(s)
+    }
+
+    /// 
+    /// A function to set the taraget csm
+    /// If the CSM does not exist in the CMS hashmap, an error is printed and returned.
+    ///   
+    pub fn set_csm(&mut self, target_csm:&str) -> Result<(), Box<dyn Error>>{
+        
+        match self.cloudservicemanagers.get(target_csm){
+            None => return {
+                error!("The provided target cloud manager does not exist in the cloud service manager map. Consider to import this!");
+                Err("The provided target cloud manager does not exist in the cloud service manager map. Consider to import this!".into())}
+                ,
+            Some(_) => ()
+        };
+        
+        self.csm = target_csm.to_string();
+        Ok(())
+    }
+
+    ///
+    /// A wrapper function to get the inner manager as azure
+    /// 
     pub fn mgr_as_azure(&self) -> Option<&AzureStorageMgmt>{
-        match &self.cloudservicemanager{
+        match &self.get_mgmr(){
             CloudServiceManager::Azure(s) => Some(s)
         }
     }
 
     /// Function to expose the self.cloudservecemanager
     pub fn get_mgmr(&self) -> &CloudServiceManager{
-        &self.cloudservicemanager
+        &self.cloudservicemanagers.get(&self.csm).unwrap()
     }
 
     ///
@@ -372,8 +433,8 @@ impl AurrCore{
     pub async fn upload_tool(&self, tool:Tool, container:Option<&str>) -> Result<CloudResource, Box<dyn std::error::Error>>{
 
         match container{
-            Some(s) => self.cloudservicemanager.upload(LocalResource::Tool(tool), s).await,
-            None => self.cloudservicemanager.upload(LocalResource::Tool(tool), "tools").await
+            Some(s) => self.get_mgmr().upload(LocalResource::Tool(tool), s).await,
+            None => self.get_mgmr().upload(LocalResource::Tool(tool), "tools").await
         }
         
     }
@@ -548,7 +609,7 @@ impl AurrCore{
 
 
                 match self.generate_sas_upload_token(
-                    CloudResource::AZURE(crate::lib::azure::AzureCloudResource::Container(Container::new(&con))),
+                    CloudResource::Azure(crate::lib::azure::AzureCloudResource::Container(Container::new(&con))),
                      tool_config.get::<u8>("CLOUD_TOKEN_UPLOAD_TIMEOUT").unwrap())
                      .await{
                         Ok(token) => tool_config.add(cloud_upload_location, token),
@@ -566,7 +627,7 @@ impl AurrCore{
                 };
 
                 match self.gen_sas_upload_url(
-                    CloudResource::AZURE(crate::lib::azure::AzureCloudResource::Container(Container::new(&con))),
+                    CloudResource::Azure(crate::lib::azure::AzureCloudResource::Container(Container::new(&con))),
                      tool_config.get::<u8>("CLOUD_TOKEN_UPLOAD_TIMEOUT").unwrap())
                      .await{
                         Ok(token) => tool_config.add(new_config_entry, token),
