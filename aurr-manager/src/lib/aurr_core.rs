@@ -439,6 +439,18 @@ impl AurrCore{
         
     }
 
+
+    pub async fn download_cloud_resource(&self, cloud_resource_path:&str, download_dir:&str) -> Result<(), Box<dyn std::error::Error>>{
+
+        let cr = match self.get_mgmr(){
+            CloudServiceManager::Azure(_) => CloudResource::Azure(super::azure::AzureCloudResource::Text(cloud_resource_path.to_string()))
+        };
+
+        self.get_mgmr().download(cr, download_dir).await?;
+
+        Ok(())
+    }
+
     ///
     /// Function to cloudify a vector of tools. 
     /// This will push a set of tools to the cloud and return a set of downloadable urls.

@@ -1,3 +1,6 @@
+use std::error::Error;
+
+use azure_core::time;
 use config::Config;
 use tracing::info;
 
@@ -87,10 +90,18 @@ pub enum CloudServiceManager{
 /// 
 pub trait CloudServiceManagerTrait {
     async fn test_connection(&self) -> Result<bool, Box<dyn std::error::Error>>;
+    async fn get_status(&self, cloud_resource:CloudResource) -> Result<(), Box<dyn std::error::Error>>;
+    
     async fn upload(&self, resource:LocalResource, some_cloud_storage_path:&str) -> Result<CloudResource, Box<dyn std::error::Error>>;
+    async fn download(&self, resource:CloudResource, download_dir:&str) -> Result<(),Box<dyn Error>>;
+    async fn pull_sync(&self, resource:CloudResource, download_dir:&str, timeout:i64, check_period:i64) -> Result<(),Box<dyn Error>>;
+
     async fn grant_read_access(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>; 
     async fn grant_upload_token(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>;
     async fn grant_upload_url(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>;
+    
+    
+
     fn get_name(&self) -> String;
     fn get_type(&self) -> String;
     fn get_info(&self) -> String;
@@ -107,6 +118,12 @@ pub trait CloudServiceManagerTrait {
 /// 
 impl CloudServiceManagerTrait for CloudServiceManager{
 
+    async fn get_status(&self, cloud_resource:CloudResource) -> Result<(), Box<dyn std::error::Error>> {
+        match self{
+            CloudServiceManager::Azure(asm) => asm.get_status(cloud_resource).await
+        }
+    }
+    
     async fn test_connection(&self) -> Result<bool, Box<dyn std::error::Error>> {
         match self{
             CloudServiceManager::Azure(asm) => asm.test_connection().await
@@ -118,6 +135,20 @@ impl CloudServiceManagerTrait for CloudServiceManager{
             CloudServiceManager::Azure(asm) => Ok(
                 CloudResource::Azure(
                     asm.upload_resource(&resource, &resource.get_name(),some_cloud_storage_path, true).await.unwrap()))
+        }
+    }
+
+    async fn download(&self, resource:CloudResource, download_dir:&str) -> Result<(),Box<dyn Error>> {
+        match self{
+            CloudServiceManager::Azure(asm) => {
+                asm.download(resource, download_dir).await
+            }
+        }
+    }
+
+    async fn pull_sync(&self, resource:CloudResource, download_dir:&str, timeout:i64, check_period:i64) -> Result<(),Box<dyn Error>> {
+        match self{
+            CloudServiceManager::Azure(acm) => acm.pull_sync(resource, download_dir,timeout, check_period).await
         }
     }
 
@@ -226,6 +257,15 @@ impl CloudServiceManager {
 ///This implement should be moved to azure.rs
 impl CloudServiceManagerTrait for AzureStorageMgmt {
 
+
+    async fn get_status(&self, cloud_resource:CloudResource) -> Result<(), Box<dyn std::error::Error>> {
+        match cloud_resource{
+            CloudResource::Azure(acr) => self.get_status_acr(acr).await,
+            _ => return Err("Passed wrong CloudResource to AzureCloudManager".into())
+        }
+    }
+
+
     async fn test_connection(&self) -> Result<bool, Box<dyn std::error::Error>> {
         match self.check_connection().await{
             Ok(_) => Ok(true),
@@ -241,6 +281,24 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
             CloudResource::Azure(
                 self.upload_resource(&resource, &resource.get_name(),some_cloud_storage_path, true).await.unwrap()
         ))
+    }
+
+    async fn download(&self, resource:CloudResource, download_dir:&str) -> Result<(),Box<dyn Error>> {
+        match resource{
+            CloudResource::Azure(acr) => {
+                self.download_resource(acr, download_dir).await
+            }
+            _ => Err("Passing wrong cloud resource to Azure".into())
+        }
+    }
+
+    async fn pull_sync(&self, resource:CloudResource, download_dir:&str, timeout:i64, check_period:i64) -> Result<(),Box<dyn Error>> {
+        match resource{
+            CloudResource::Azure(acr) => {
+                self.pull_sync_acr(acr, download_dir, timeout, check_period).await
+            },
+            _ => return Err("Provided invalid cloud resource for azure cloud manager".into())
+        }
     }
 
     async fn grant_read_access(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>{

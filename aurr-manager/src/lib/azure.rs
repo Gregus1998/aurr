@@ -3,12 +3,15 @@ use crate::{error, info, lib::{
     aurr_core::LocalResource}};
 
 use async_recursion::async_recursion;
-use std::{fmt::Debug, fs::File, io::Read, process::exit,};
+use chrono::Utc;
+use colored::Colorize;
+use tracing_subscriber::fmt::format;
+use std::{collections::{BTreeMap, HashMap}, error::Error, fmt::Debug, fs::{self, File}, hash::Hash, io::{Read, Write}, process::exit, thread::sleep};
 use azure_core::{
-    time::{Duration, OffsetDateTime}
+    cloud, http::check_success, time::{Duration,OffsetDateTime}
 };
 use azure_storage_blobs::
-    {blob::Blob, 
+    {blob::{self, Blob, BlobProperties}, 
         container::Container, 
         prelude::*
     };
@@ -34,7 +37,7 @@ impl AzureCloudResource{
         match self{
             AzureCloudResource::Blob(blob) => Some(cc.blob_client(blob.name.clone())),
             AzureCloudResource::Text(s) => {
-                
+
                 //Some random logic to handle if a container is passed or not. 
                 let blob = match s.split_once("/"){
                     Some(prod) => prod.1,
@@ -42,6 +45,9 @@ impl AzureCloudResource{
                 };
 
                 Some(cc.blob_client(blob))},
+
+
+
             AzureCloudResource::BlobClient(_bc) => Some(_bc.clone()),
             AzureCloudResource::Container(_) => None
 
@@ -58,7 +64,33 @@ impl AzureCloudResource{
         }
     }
 
+    ///
+    /// A function to take a AzureCloudResource::text and split it into container and blob based on a separator
+    /// 
+    pub fn get_container_blob_by_pathsep(&self) -> Result<(Option<&str>,Option<&str>), Box<dyn std::error::Error>>{
 
+
+        match &self{
+            AzureCloudResource::Text(s) => {
+                let sep = match s.contains("::"){
+                    true => "::",
+                    false => "/"
+                };
+
+                match s.split_once(sep){
+                    None => return Err("Using wrong separator in container/blob path. Use \"container/blob\" OR \"container::blob\"".into()),
+                    Some((a,b)) => Ok((Some(a),Some(b)))
+                }
+            },
+            AzureCloudResource::Container(con) => Ok((Some(&con.name), None)),
+
+            AzureCloudResource::Blob(blob) => Ok((None, Some(&blob.name))),
+
+            _ => {
+                return Err("Only supported for AzureCloudResource::text".into())}
+        }
+    } 
+    
     ///
     /// Function to get the potensial name of a container for a random set of AzureCloudReseources
     /// 
@@ -98,7 +130,21 @@ impl AzureCloudResource{
         }
     }
 
+
+    /// 
+    /// A wrapper function to return itself as a string. 
+    /// Could probably have done this via the fmt trait
+    /// 
+    pub fn as_string(&self) -> String{
+        match self{
+            AzureCloudResource::Blob(b) => b.name.to_string(),
+            AzureCloudResource::BlobClient(bc) => bc.blob_name().to_string(),
+            AzureCloudResource::Text(t) => t.to_string(),
+            AzureCloudResource::Container(con) => con.name.to_string()
+        }
+    }
 }
+
 
  ///Wrapper Structure for the azure mgmt and core features
  /// Should handle all the core features targeting azure-cloud. 
@@ -327,6 +373,43 @@ impl AzureStorageMgmt {
 
     }
 
+
+    /// 
+    /// A function to download a specific cloud resource
+    /// 
+    pub async fn download_resource(&self, cloud_resource:AzureCloudResource, download_dir:&str) -> Result<(), Box<dyn std::error::Error>>{
+        let (con_name,blob_name) = cloud_resource.get_container_blob_by_pathsep().unwrap();
+
+        let cc = self.get_container_client(con_name.unwrap()).await?;
+
+        let bc = cc.blob_client(blob_name.unwrap());
+
+        let mut blob_stream = bc.get().into_stream();
+
+        let path = format!("{}/{}",download_dir,bc.blob_name());
+        
+        //Checks if the file exists -> if it exists, create a new file with UTC timetamp at the end. 
+        let mut file = match fs::File::open(&path){
+            Err(_) => fs::File::create(&path)?,
+            Ok(_) => {
+                let new_path = format!("{}<{}>",path, OffsetDateTime::now_utc());
+                fs::File::create(new_path)?
+            }
+        };
+
+        while let Some(val) = blob_stream.next().await{
+            let bytes =val.unwrap().data.collect().await?;
+            file.write_all(&bytes).unwrap();
+        }
+
+        file.flush()?;
+
+        info!("Download of blob <{}> Complete ",cloud_resource.get_name());
+
+        Ok(())
+    }
+
+
     ///Function to generate a sas-token for a specific cloud resource.
     ///     -> Very scary function. Use with care 
     /// 
@@ -507,5 +590,227 @@ impl AzureStorageMgmt {
         Ok(())
     }
 
+
+    /// 
+    /// A function to get some basic information of a cloud resource 
+    /// Aims to use this to check if a cloud resource is done uploaded
+    /// 
+    pub async fn get_status_acr(&self, cloud_resource:AzureCloudResource) -> Result<(), Box<dyn std::error::Error>>{
+
+        //Getting the container name/blob name
+        let (cont_name, blob_name) = cloud_resource.get_container_blob_by_pathsep().unwrap();
+
+        let cc = self.get_container_client(cont_name.unwrap()).await.unwrap();
+
+        let bc = cc.blob_client(blob_name.unwrap());
+
+        let prop = bc.get_properties().await.unwrap();
+
+        let meta = bc.get_metadata().await.unwrap();
+
+        let properties = prop.blob.properties.clone();
+
+        let uploaded = if AzureStorageMgmt::check_uploaded(&properties, &Duration::minutes(2)){
+            format!("{}", "[UPLOADED]".green())
+        }else {
+            format!("{}","[UNSURE]".red())
+        };
+
+        let s = format!(
+        "
+    Blob: 
+        Name: {}
+        Path: {}
+    Properties:
+        Creation_Time(UTC): {}
+        Last_Modified(UTC): {}
+        Last_Accessed{}
+        ETag: {}
+        Content_Len: {}
+        md5: {}
+    Metadata:
+        Meta_Date: {}
+        Meta_ETag: {}
+        Request_ID: {}
+        Server: {}
+    Uploaded status:
+        {}
+",
+        prop.blob.name,
+        cloud_resource.as_string(),
+        prop.blob.properties.creation_time,
+        prop.blob.properties.last_modified,
+        match prop.blob.properties.last_access_time{
+            Some(s) => s.to_string(),
+            None => "N/A".to_string()
+        },
+        prop.blob.properties.etag,
+        prop.blob.properties.content_length,
+        match prop.blob.properties.content_md5{
+            Some(md5) => format!("{}",hex::encode(md5.bytes())),
+            None => "N/A".to_string()
+        },
+
+        meta.date,
+        meta.etag,
+        meta.request_id,
+        meta.server,
+        uploaded
+
+    );
+
+        println!("{}",s);
+
+        Ok(())
+    }
+
+
+    fn check_uploaded(blob_prop:&BlobProperties, last_mod_since:&Duration) -> bool{
+
+        // produces a 5 min old timestamp
+        let now = OffsetDateTime::now_utc() - *last_mod_since;
+
+
+        // Checks if etag and md5 of content exists. + If the last modified timestamp is older than 5 min.
+        !blob_prop.etag.to_string().is_empty() && blob_prop.last_modified < now
+
+
+    }
+
+
+
+    async fn pull_sync_blob(&self, blob_name:&str, container_name:&str, download_dir:&str, timeout:u8, check_period:u8) -> Result<(),Box<dyn Error>>{
+
+        Ok(())
+    }
+
+    async fn pull_sync_container(&self, container_name:&str, download_dir:&str, timeout:i64, check_period:i64) -> Result<(),Box<dyn Error>> {
+
+        info!("Running Pull_Sync on container: <{}> Timout: <{}> Interval: <{}> ",container_name, timeout,check_period);
+
+        struct BlobStatus{
+            uploaded:bool,
+            downloaded:bool, 
+            download_timestamp:OffsetDateTime // Should be the last_updated timestamp of that blob that is downloaded.
+        }
+
+        //Creating map to store everything.
+        let mut blob_map:BTreeMap<String, BlobStatus> = BTreeMap::new();
+
+        // Creating the download directory
+        std::fs::create_dir_all(download_dir)?;
+
+        // Creating container client
+        let cc = self.bsc.container_client(container_name);
+
+        let timeouttime = OffsetDateTime::now_utc() + Duration::minutes(timeout.into());
+
+        // As long as not_utc is less than The previously created timeouttime do the loop
+        while OffsetDateTime::now_utc() < timeouttime  {
+
+            let cloud_files = self.list_blobs(container_name).await.unwrap();
+            let d = Duration::minutes(check_period);
+
+            for cf in cloud_files.iter(){
+
+                let c_path = format!("{}/{}",container_name,cf.name).replace("//", "/");
+
+                match blob_map.get_mut(&cf.name.to_string()){
+                    
+                    None => {
+                        // Check if uploaded is good
+                        let up = AzureStorageMgmt::check_uploaded(&cf.properties, &d);
+
+                        // if uploaded is good -> download and set download flag true
+                        let down = if up{
+                            self.download_resource(AzureCloudResource::Text(c_path), download_dir).await?;
+                            true
+
+                        }else{
+                            false
+                        };
+
+                        blob_map.insert(cf.name.to_string(), BlobStatus { 
+                            uploaded: up,
+                            downloaded: down,
+                            download_timestamp: cf.properties.last_modified
+                        });
+                    },
+
+                    // If 
+                    Some(bs) => {
+                        // If not uploaded, check if uploaded
+                        if !bs.uploaded {
+                            bs.uploaded = AzureStorageMgmt::check_uploaded(&cf.properties, &d)
+                        }
+
+                        // If not download and uploaded -> download
+                        if !bs.downloaded && bs.uploaded{
+                            self.download_resource(AzureCloudResource::Blob(cf.clone()), download_dir).await?;
+                            bs.download_timestamp = cf.properties.last_modified; 
+                            bs.downloaded = true
+
+                        // if blob uploaded, downloaded and older timestamp then last dowloaded file -> download new copy. 
+                        }else if bs.downloaded && bs.uploaded && bs.download_timestamp < cf.properties.last_modified{
+                            self.download_resource(AzureCloudResource::Blob(cf.clone()), download_dir).await?;
+                            bs.download_timestamp = cf.properties.last_modified; 
+
+                        }
+
+                    }
+                }
+
+            }
+
+            let mut s = format!("Container: {} Time(UTC)
+            : <{}> \n",container_name, OffsetDateTime::now_utc());
+
+
+            for (i,v) in blob_map.iter(){
+                let s1 = if v.uploaded{&"[UPLAODED]".green()
+                }else {
+                    &"[NOT UPLOADED]".red()
+                };
+
+                let s2 = if v.downloaded {&"[DOWNLOADED]".green()}else {
+                    &"[NOT_DOWNLOADED]".red()
+                };
+
+                s.push_str(&format!("\t{} {} {} Time(UTC):<{}>\n", i,s1,s2, v.download_timestamp));
+  
+            } 
+
+            println!("{}",s);
+
+            //Sleeping for the check period. 
+            sleep(std::time::Duration::from_mins(check_period.try_into().unwrap()));
+
+            
+        }
+        
+
+        Ok(())
+    }
+
+    /// 
+    /// A function to monitor and download all new content of a azure cloud resource for a specific timeout. 
+    /// 
+    pub async fn pull_sync_acr(&self, acr:AzureCloudResource, download_dir:&str, timeout:i64, check_period:i64) -> Result<(),Box<dyn Error>>{
+
+        match acr{
+
+            AzureCloudResource::Container(con) => {
+                self.pull_sync_container(&con.name, download_dir, timeout, check_period).await
+            }
+
+            // If anyone is using the "from_path" function to create Azure Cloud resources, this will give a container or text type. this means that Text will only be single blobs.  
+            AzureCloudResource::Text(path ) => {
+                todo!("Need to find out how to do stuff here.")
+            }
+
+            _ => return Err("The provided AzoureCloudResource is not supported yet".into())
+        }
+
+    }
 
 }

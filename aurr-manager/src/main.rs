@@ -9,6 +9,7 @@ use lib::template::*;
 use lib::logging::Logger;
 use config::{Config, File, FileFormat};
 use lib::tools::{Tool};
+use tracing_subscriber::filter::targets;
 use std::collections::HashMap;
 use std::env;
 use std::fmt::Debug;
@@ -17,6 +18,7 @@ use std::io::{self, Write};
 use std::process::exit;
 use serde::Deserialize;
 
+use crate::lib::azure::AzureCloudResource;
 use crate::lib::cloud_storage_managers::CloudResource;
 use crate::lib::cloud_storage_managers::CloudServiceManagerTrait;
 use crate::lib::local_setup;
@@ -337,6 +339,28 @@ impl ArgParser{
 
             },
 
+            "download" => {
+                self.init_mgmr().await.unwrap();
+
+                let cr_to_download = &switch_options[0];
+                let download_path = &switch_options[1];
+
+                self.aurr_mgmr.as_ref().unwrap().download_cloud_resource(cr_to_download, &download_path).await;
+
+            }
+
+            "status" => {
+                self.init_mgmr().await.unwrap();
+
+                //Target should be a path or cotnainer::blob
+                let targets = &switch_options[0];
+
+                let r = AzureCloudResource::from_path(targets).unwrap();
+
+                self.aurr_mgmr.as_ref().unwrap().get_mgmr().get_status(CloudResource::Azure(r)).await.unwrap();
+
+            }
+
             "cloudify" => {
 
                 self.init_mgmr().await.unwrap();
@@ -426,6 +450,40 @@ impl ArgParser{
                 }
 
                 
+            },
+
+            "sync" => {
+
+                self.init_mgmr().await.unwrap();
+
+                let target = match switch_options.get(0){
+                    Some(s) => s,
+                    None => return Err("Usage: sync <Cloud_Resource_Like> <download_dir_path>".into())
+                };
+
+                let download_dir = match switch_options.get(1){
+                    Some(s) => s,
+                    None => return Err("Usage: sync <Cloud_Resource_Like> <download_dir_path>".into())
+                };
+
+                // fetching the timout from config or userinput
+                let timeout = match self.options.get("CLOUD_SYNC_TIMEOUT"){
+                    Some(s) => s.parse().expect("Not Valid u8 for CLOUD_SYNC_TIMOUT"),
+                    None => self.config.as_ref().unwrap().get::<i64>("CLOUD_SYNC_TIMEOUT").unwrap()
+                };
+
+                //fetching the interval
+                let interval = match self.options.get("ClOUD_SYNC_INTERVAL"){
+                    Some(s) => s.parse().expect("Not valid u8 for ClOUD_SYNC_INTERVAL"),
+                    None => self.config.as_ref().unwrap().get::<i64>("ClOUD_SYNC_INTERVAL").unwrap()
+                };
+
+                //Defining the resource
+                let resource = CloudResource::from_path(target, &self.aurr_mgmr.as_ref().unwrap().get_mgmr().get_type()).unwrap();
+
+                //running the pull_sync function
+                self.aurr_mgmr.as_ref().unwrap().get_mgmr().pull_sync(resource, download_dir, timeout, interval).await?;
+
             },
 
             "run-case" => {
@@ -788,7 +846,25 @@ impl ArgParser{
                                     
                                     Call Options:
                                         - upload tools::<tool_name>
-                                        - upload file <filepath1> <filepath2> .. <filepath_N>  
+                                        - upload file <filepath1> <filepath2> .. <filepath_N>
+
+    Download                    // Download the content of a cloud resource to a local filepath
+                                    Requires: 
+                                        --account key
+                                    
+                                    Call Options: 
+                                        - download <container::blob> <local_path>
+
+    status                      // List detailed information about a target cloud resource
+                                    Requires:
+                                        --account-key
+
+    sync                        // Pull Sync the content of a cloud storage to a local path.
+                                    Requires: 
+                                        --account-key
+                                    
+                                    Call Options:
+                                        sync <some_cloud_resource> <local_dir>
 
     Cloudify                    // Upload a local tool / resource and return a download URL
                                     Requires: 
