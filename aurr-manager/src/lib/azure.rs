@@ -686,7 +686,7 @@ impl AzureStorageMgmt {
 
     async fn pull_sync_container(&self, container_name:&str, download_dir:&str, timeout:i64, check_period:i64) -> Result<(),Box<dyn Error>> {
 
-        info!("Running Pull_Sync on container: <{}> Timout: <{}> Interval: <{}> ",container_name, timeout,check_period);
+        info!("Running Pull_Sync on container: <{}> Timout: <{}Min> Interval: <{}Min> ",container_name, timeout,check_period);
 
         struct BlobStatus{
             uploaded:bool,
@@ -762,8 +762,7 @@ impl AzureStorageMgmt {
 
             }
 
-            let mut s = format!("Container: {} Time(UTC)
-            : <{}> \n",container_name, OffsetDateTime::now_utc());
+            let mut s = format!("Container: {} Time(UTC): <{}> \n",container_name, OffsetDateTime::now_utc());
 
 
             for (i,v) in blob_map.iter(){
@@ -776,7 +775,7 @@ impl AzureStorageMgmt {
                     &"[NOT_DOWNLOADED]".red()
                 };
 
-                s.push_str(&format!("\t{} {} {} Time(UTC):<{}>\n", i,s1,s2, v.download_timestamp));
+                s.push_str(&format!("\t{:<50} {:<} {:<} Time(UTC):<{}>\n", i,s1,s2, v.download_timestamp));
   
             } 
 
@@ -787,7 +786,6 @@ impl AzureStorageMgmt {
 
             
         }
-        
 
         Ok(())
     }

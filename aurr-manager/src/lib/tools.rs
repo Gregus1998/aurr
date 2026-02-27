@@ -309,12 +309,10 @@ impl Tool {
     /// Pass a cloud manager to the tool and it will pipe the tool up in cloud and generate a URL
     /// Only support for AZURE at the moment
     /// 
-    pub async fn cloudify(&self, cloud_manager:&CloudServiceManager, config:&Config) -> Result<String, Box<dyn std::error::Error>>{
+    pub async fn cloudify(&self, cloud_manager:&CloudServiceManager, cloud_location:&str, timeout:u8) -> Result<String, Box<dyn std::error::Error>>{
         
-        let cp = config.get::<String>("AZURE_TOOLS_CONTAINER_NAME").unwrap();
-
         //This returns a cloud resource
-        let cr = match cloud_manager.upload(super::aurr_core::LocalResource::Tool(self.clone()), &cp).await{
+        let cr = match cloud_manager.upload(super::aurr_core::LocalResource::Tool(self.clone()), cloud_location).await{
             
             Ok(t) => {
                 info!("Uploaded tool: {} to {}",t.as_azure().unwrap().get_name(), cloud_manager.get_type());
@@ -322,13 +320,13 @@ impl Tool {
             },
             
             Err(e) => {
-                error!("Could not upload tool: <{}> to container: <{}> due to: <{}>",self.name,cp,e);
+                error!("Could not upload tool: <{}> to container: <{}> due to: <{}>",self.name,cloud_location,e);
                 return Err(format!("Could not upload tool: {} due to: {}",self.name, e).into());
             }
 
         };
 
-        let url = cloud_manager.grant_read_access(cr, config.get::<u8>("CLOUD_TOKEN_READ_TIMEOUT").unwrap()).await.unwrap();
+        let url = cloud_manager.grant_read_access(cr, timeout).await.unwrap();
 
         Ok(url)
     }

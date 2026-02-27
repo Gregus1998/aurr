@@ -100,8 +100,6 @@ pub trait CloudServiceManagerTrait {
     async fn grant_upload_token(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>;
     async fn grant_upload_url(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>;
     
-    
-
     fn get_name(&self) -> String;
     fn get_type(&self) -> String;
     fn get_info(&self) -> String;
@@ -109,7 +107,6 @@ pub trait CloudServiceManagerTrait {
     async fn list_containers(&self) -> Result<Vec<String>, Box<dyn std::error::Error>>;
     async fn list_blobs_container(&self, container_name:&str) -> Result<Vec<String>, Box<dyn std::error::Error>>;
 } 
-
 
 ///
 /// Implementation of CloudServiceManager
@@ -192,6 +189,7 @@ impl CloudServiceManagerTrait for CloudServiceManager{
         }
     }
 
+    /// A function to list containers at the root of the cloud managers. 
     async fn list_containers(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         match self{
             CloudServiceManager::Azure(acm) => {

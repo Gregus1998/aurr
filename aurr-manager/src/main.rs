@@ -1,8 +1,11 @@
 //Imported modules
 mod lib;
 
+use azure_core::time;
+use clap::ArgGroup;
 use colored::Colorize;
 use crossterm::style::Stylize;
+use futures::future::ok;
 //Imports:
 use lib::aurr_core::AurrCore;
 use lib::template::*;
@@ -17,35 +20,42 @@ use std::fmt::Display;
 use std::io::{self, Write};
 use std::process::exit;
 use serde::Deserialize;
+use clap::{Parser, Subcommand};
+
 
 use crate::lib::azure::AzureCloudResource;
 use crate::lib::cloud_storage_managers::CloudResource;
 use crate::lib::cloud_storage_managers::CloudServiceManagerTrait;
 use crate::lib::local_setup;
+use crate::lib::argparser as Arg;
+use crate::lib::local_setup::local_setup;
+use crate::lib::tools;
 
 /// Function to load the config.toml
 /// This function gets called first time in the main. 
 /// If global variables should be set, it can be done here. 
-fn load_config(path:Option<&str>, access_key: Option<&str>) -> Config{
+fn load_config(path:&Option<String>, access_key: &Option<String>) -> Option<Config>{
+
+    let new_key = Some(access_key.clone().unwrap_or("".to_string()));
 
     let mut builder = Config::builder()
-        .add_source(File::new(path.unwrap_or("Config.toml"), FileFormat::Toml).required(true));
+        .add_source(File::new(&path.clone().unwrap_or("Config.toml".to_string()), FileFormat::Toml).required(true));
     
     
-    if let Some(key) = access_key {
+    if let Some(key) = new_key {
         builder = builder.set_override("AZURE_ACCESS_KEY", key).unwrap();
     }
     
     match builder.build(){
         Ok(conf) => {
-            conf
+            Some(conf)
         },
         Err(e) => {
             println!("Could not load config due to: {}
             If it is the first time running -> Setup a local enviroment with \"./aurr-manager run-local-setup\"
             If config file does exists, pass it via an optional argument: \"--config=<path/to/Config.toml>\"  
             ",e.to_string());
-            exit(13)
+            None
         }
     }
 }
@@ -81,869 +91,334 @@ impl <T> PrintResults <T> {
             PrintResults::Vec(vec) => {
                 println!("{}", headder.unwrap_or(""));
                 for i in vec.iter(){
-                    println!("{}",i)
+                    println!("\t{}",i)
                 }
             }
         }
     }
 }
 
+#[derive(Parser)]
+#[command(name = "Aurr")]
+#[command(about = "Test Aurr clap cli")]
+struct Cli{
 
-struct ArgParser{
-    args:Vec<String>,
-    options: HashMap<String,String>,
-    config:Option<Config>,
-    aurr_mgmr:Option<AurrCore>
+
+
+    // Cmdlines variables
+    #[arg(long, default_value = "./Config.toml")]
+    config: Option<String>,
+
+    #[arg(long, long, short, env = "AURR_KEY", help = "Access Key to a Cloud API.")]
+    key: Option<String>,
+
+    #[arg(long, default_value = "./log/")]
+    log_dir:Option<String>,
+
+    #[command(subcommand)]
+    switch: Switch,
+
+    #[arg(long, default_value = "azure")]
+    csm:String,
+
+    #[arg(long, default_value = "data/templates/tools.json")]
+    tools:String,
+
+    #[arg(long, default_value = "data/templates/case_templates/")]
+    case_dir:Option<String>,
+
+    #[arg(long, default_value = "data/templates/task_templates/" )]
+    task_dir:Option<String>,
+
 }
 
 
-///
-/// A Argument Parser struct to handle all the interaction between the calling of the program and the execution flow
-/// This will be the shell to decide the further execution. 
-/// 
-impl ArgParser{
+#[derive(Subcommand)]
+#[derive(Clone)]
 
-    pub async fn new() -> Result<(), Box<dyn std::error::Error>>{
-        //Creating the argparser
-        let mut argparser = ArgParser { args: std::env::args().collect::<Vec<String>>(), options: HashMap::new(), config:None, aurr_mgmr:None };     
+enum Switch {
 
+    #[command(about = "Print Version")]
+    Version,
 
-        //Parsing the argiuments + initiating the switch + loading the config and returning switch statement
-        match argparser.parse_arguemnts(){
-            Ok(s) => s,
-            Err(e) => {
-                println!("Error in parsing the arguments: {}",e.to_string());
-                exit(1);
-            }
-        };
+    #[command(about = "Run a local setup in the current working directory -> COULD overwrite existing files")]
+    LocalSetup,
+
+    #[command(about = "Upload a local resource to a specified cloud location")]
+    Upload {
+
+        #[command(subcommand)]
+        local_path:LocalResource,
         
-        //Pass the switch to the handle_switch function. This should point to a set of function calls based on what to do. 
-        match argparser.parse_switch().await{
-            Ok(_) => Ok(()),
-            Err(e) => {
-                error!("{}",e.to_string());
-                exit(2)
-            }
-        }
-    }
+        #[arg(help = "Cloud_Path_Like String to target", default_value = "upload", long, short)]
+        remote_path:Option<String>
+    },
 
-    ///
-    /// A internal function to check and add the account key if needed.
-    /// 
-    fn check_add_account_key(&mut self) ->  Result<(), Box<dyn std::error::Error>>{
+    #[command(about = "Download a specified cloud resource to a local path/folder")]
+    Download {
+        #[arg(help = "Cloud_Path_Like String")]
+        remote_path:String,
+        
+        #[arg(help = "Local_DirPath_Like String")]
+        download_dir:String
+    },
 
-        //If the key is not empty, we should do something
-        if self.config.as_ref().unwrap().get::<String>("AZURE_ACCESS_KEY").unwrap().is_empty(){
+    #[command(about = "\"Cloudify\" A local resource  -> Returns a URL that gives access to the file with a given timeout")]
+    Cloudify{
+        
+        #[command(subcommand)]
+        local_path:LocalResource,
 
-            //Getting the key if it is provided. eighter via the optional arguments or the env_variables
-            let access_key = match self.options.get::<String>(&"account-key".to_string()){
-                Some(key) => key.to_string(),
-                None => {
-                    match env::var("AZURE_ACCESS_KEY"){
-                        Ok(key) => key,
-                        Err(e) => {
-                            println!("CLOUD ACCOUNT KEY DOES NOT EXIST - {} - provide key via argument: --account-key=<key>  or ENV_VAR: AZURE_ACCESS_KEY=<key>",e.to_string());
-                            exit(8)
-                        }
-                    }
-                }
-            };
+        #[arg(help = "Cloud_Path_Like String to target", default_value = "upload", long, short)]
+        remote_path:Option<String>,
 
-            //Building a new config where I add the new key
-            let new_config = Config::builder()
-                .add_source(self.config.clone().unwrap())
-                .set_override("AZURE_ACCESS_KEY", access_key)?
-                .build()?;
+        #[arg(help = "Timeout of token validity in Hours", default_value = "6", long,short)]
+        timeout:Option<u8>
+    },
 
-            //overwrites the 
-            self.config = Some(new_config);
-        }
+    #[command(about = "Grant permissions to a target cloud resource", aliases = ["Grant-Access", "ga"])]
+    GrantAccess{
 
-        Ok(())
+        #[arg(help = "Cloud_Path_Like String to target",)]
+        remote_path:String,
 
+        #[arg(help = "Permission string (r|rw)", default_value = "r")]
+        permission:String,
+
+        #[arg(help = "Timeout of token validity in Hours", default_value = "6")]
+        timeout:u8
+    },
     
-    }
+    #[command(about = "Run a sync against a remote cloudborn location. Will download all new elements to the specified local_path")]
+    Sync {
+       #[arg(help = "Cloud_Path_Like String to target", long, short)]
+        remote_path:String,
+        
+        #[arg(help = "Lokal directory to save results to",long, short)]
+        local_path:String,
 
-    ///
-    /// A function to check the account key and init the connection to cloud
-    /// 
+        #[arg(help = "Timeout in Hours to monitor a cloud resource", default_value = "4", long,short)]
+        timeout:i64,
+
+        #[arg(help = "Interval between each check in min", default_value = "5", long, short)]
+        interval:i64
+    },
+
+    #[command(about = "Run a Case_Template")]
+    Run {
+        #[command(subcommand)]
+        obj:RunObject,
+
+        #[arg(help = "Timout of the token validity", default_value = "12")]
+        timeout:u8
+    },
+
+    #[command(about = "List infomation about different objects")]
+    Ls {
+        #[command(subcommand)]
+        switch:ListObject,
+
+        #[arg(long, global = true, default_value = "false", long, short)]
+        fullinfo:Option<bool>
+
+    }
+}
+
+impl Switch{
+    fn is_ls(&self) -> bool{
+        match self{
+            Switch::LocalSetup => true,
+            _ => false
+        }
+    }
+}
+
+#[derive(Subcommand)]
+#[derive(Clone)]
+pub enum ListObject{
+
+    #[command(about = "Cloudborn objects")]
+    Cloud {
+        #[arg(help = "Pathlike String -> \"path/to/a/cloudresource\"")]
+        cloud_string:Option<String>
+    },
+
+    #[command(about = "Config Object")]
+    Config,
+
+    #[command(about = "Tools Object")]
+    Tools {
+        #[arg(help = "String. Will return all \"tools\" with the provided string")]
+        filter:Option<String>
+    },
+
+    #[command(about = "Case Object")]
+    Case {
+        #[arg(help = "Pathlike String -> \"path/to/case_template\"")]
+        path:Option<String>
+    },
+
+    #[command(about = "Cloud Service Manager Objects (CSM)")]
+    Csm {
+        #[arg(help = "Need to implement this stuff")]
+        filter:Option<String>
+    },
+
+}
+
+#[derive(Subcommand)]
+#[derive(Clone)]
+pub enum RunObject{
+
+    #[command(about = "To run a case template",
+    group = ArgGroup::new("case")
+        .args(["path", "name"])
+        .required(true)
+        .multiple(false))]
     
-    async fn init_mgmr(&mut self) -> Result<(), Box<dyn std::error::Error>>{
+    Case {
+        #[arg(help = "Local_PathLike_String - Path/to/case/template.json", short,long)]
+        path:Option<String>,
 
-        self.check_add_account_key()?;
-        //this will just create a new azyre clloud thingy. Need to add a support based on a config here. 
-        self.aurr_mgmr = Some(AurrCore::new(&self.config.as_ref().unwrap()).await?);
-        Ok(())
+        #[arg(help = "Local_PathLike_String - Path/to/case/template.json",  short,long)]
+        name:Option<String>
     }
+}
 
-    ///
-    /// A function to get a config value from the current struct.config()
-    /// Just because I am lazy and dont want to write self.option.unwrap().get::<T>() every time :()
-    /// 
-    fn get<'a,T>(&self,key:&'a str) -> Option<T>
-    where 
-    T: Deserialize<'a>
-    {
-        match self.config.as_ref().unwrap().get::<T>(key){
-            Ok(a) => Some(a),
-            Err(_) => None
-        }
-    }
 
-    ///
-    /// A function to parse all the arguments that are passed to the function.
-    /// 
-    pub fn parse_arguemnts(&mut self) -> Result<(), Box<dyn std::error::Error>>{
+#[derive(Subcommand)]
+#[derive(Clone)]
+#[derive(Debug)]
+pub enum LocalResource {
 
-        if self.args.is_empty(){
-            ArgParser::print_help();
-            exit(1337)
-        }
+    #[command(about = "File Object ( File Path ) ")]
+    File{
+        #[arg(help = "Local_FilePath_Like_String")]
+        path:String
+    }, 
 
-        if self.args.get(1).unwrap().ends_with("run-local-setup"){
-            match local_setup::local_setup(){
-                Err(e) => eprintln!("Local setup failed due to: {}",e.to_string()),
-                Ok(_) => ()
-            };
-            exit(1337)
-        }
+    #[command(about = "Tool Object")]
+    Tool{
+        #[arg(help = "LocalResource - Name_Tool_Object")]
+        name:String
+    },
 
-        //Parsing the optional arguments
-        match self.option_parser(){
-            Ok(_) => (),
-            Err(e) => {
-                return Err(e);
-            }
-        }
+    #[command(about = "Content of a folder - This is not implemented atm")]
+    Folder
+}
 
-        //Loading the config based on the provided optional arguments
-        self.config = Some(
-            match self.options.get("config"){
-                Some(path) => load_config(Some(path), None),
-                None => load_config(Some("Config.toml"), None)
-            }
+impl Cli{
+
+    pub async fn init() -> Result<(), Box<dyn std::error::Error>>{
+        let cli = Cli::parse();
+        
+        Logger::init(cli.log_dir.clone());
+
+        // Loading the config
+        let config = load_config(
+            &cli.config,
+            &cli.key
         );
 
-        //Initiating the logger
-        Logger::init(Some(
-        self.config.as_ref().unwrap().get::<String>("LOGDIR").unwrap()
-        ));
-
-        Ok(())
-    }
-
-    ///
-    /// Function to handle the actualt switch.
-    /// This function should link whatever switch that is used to the acual function calls later in the program.
-    /// Needs to do some error handling here. 
-    /// 
-    pub async fn parse_switch(&mut self) -> Result<(), Box<dyn std::error::Error>>{
-
-        //extracting the switch option and the switch arguments
-        let switch = &self.args[1];
-        let switch_options = self.args.split_at(2).1.to_owned();
-
-        match switch.as_str(){
-
-            "version" => {
-                ArgParser::print_version();
-            }
-
-            "run-local-setup" => {
-                match local_setup::local_setup(){
-                    Ok(_) => info!("Local setup was sucessfully!"),
-                    Err(e) => {
-                        error!("Could not complete local setup due to:  {}",e.to_string());
-                        exit(99)
-                    }
-                }
-            }
-
-            //Switch-case for upload
-            "upload" => {
-                self.init_mgmr().await.unwrap();
-                let lsoption = &switch_options[0].split("::").collect::<Vec<&str>>();
-
-                match *lsoption.first().unwrap(){
-                    "tools" => {
-
-                        let tools = self.load_tools().unwrap();
-                        //Some flow to get the tool to upload
-                        let tool = match self.options.get("entry") {
-                            Some(tool) => match tools.get(tool) {
-                                Some(t) => t,
-                                None => {
-                                    error!("Invalid tool entry for OA --entry={}",tool);
-                                    return Err("Invalid tool entry".into());
-                                }
-                                
-                            },
-                            None => {
-                                error!("Switch 'cloudify' requires '--entry=<a_tool_2_upload>'");
-                                return Err("missing OA '--entry'".into());
-                            }
-                        };
-
-                        match self.aurr_mgmr.as_ref().unwrap().upload_tool(tool.clone(), Some(&self.config.as_ref().unwrap().get::<String>("CLOUD_DEFAULT_UPLOAD_LOCATION").unwrap())).await{
-                            Ok(cr) => {
-
-                                info!("Uploaded: <{}> to <{}> <{}> <{}>", tool.name,self.aurr_mgmr.as_ref().unwrap().get_mgmr().get_type(), self.aurr_mgmr.as_ref().unwrap().get_mgmr().get_name(), cr.get_info().unwrap())
-
-                            },
-                            Err(e) => {
-                                error!("{}",e.to_string());
-                                exit(3)
-                            }
-                        };
-
-                    },
-
-                    "file" => {
-                        //removing the "file option from the switch optios. -> This should have been done before the switch, but whatever :)"
-                        let files = switch_options[1..].to_vec();
-                        let mut s:String = String::new();
-
-                        println!("Are you sure you want to cloudify the following tools:",);
-                        for t in files.iter(){
-                            println!("  {}",t);
-                        }
-
-                        print!("Answer(yes/no): ");
-                        io::stdout().flush().unwrap();
-                        std::io::stdin().read_line(&mut s).unwrap();
-
-                        if s.contains("yes"){
-
-
-                            for t in files.iter(){
-                                let _ttool = match Tool::new_from_path(t){
-                                    Ok(val) => val,
-                                    Err(e) => {
-                                        error!("Could not toolify path: {} due to: {}", t,e.to_string());
-                                        exit(2)
-                                    }
-                                };
-
-                            }
-                        }else{
-                            error!("Aborting upload");
-                            exit(17)
-                        }
-                    },
-
-                    _ => {
-                    error!("The provided upload option: <{}> is not supported!",*lsoption.first().unwrap())
-                    }
-                };
-
-
-            },
-
-            "download" => {
-                self.init_mgmr().await.unwrap();
-
-                let cr_to_download = &switch_options[0];
-                let download_path = &switch_options[1];
-
-                self.aurr_mgmr.as_ref().unwrap().download_cloud_resource(cr_to_download, &download_path).await;
-
-            }
-
-            "status" => {
-                self.init_mgmr().await.unwrap();
-
-                //Target should be a path or cotnainer::blob
-                let targets = &switch_options[0];
-
-                let r = AzureCloudResource::from_path(targets).unwrap();
-
-                self.aurr_mgmr.as_ref().unwrap().get_mgmr().get_status(CloudResource::Azure(r)).await.unwrap();
-
-            }
-
-            "cloudify" => {
-
-                self.init_mgmr().await.unwrap();
-
-                let lsoption = &switch_options[0].split("::").collect::<Vec<&str>>();
-
-                match *lsoption.first().unwrap(){
-                    
-                    "tools" => {
-                        //Initiates the tool index
-                        let tools = self.load_tools().unwrap();
-
-                        // If the tool is provided via the syntax tools::Some_tool. this supports it.  
-                        match lsoption.get(1){
-                            Some(val) => {
-                                self.options.insert("entry".to_string(), val.to_string());},
-                            None => ()
-                        };
-
-                        //Some flow to get the tool to upload
-                        let tool = match self.options.get("entry") {
-                            Some(tool) => match tools.get(tool) {
-                                Some(t) => t,
-                                None => {
-                                    error!("Invalid tool entry - <{}> does not exist in tools index: {}",tool, self.config.as_ref().unwrap().get::<String>("LOCAL_TOOL_INDEX").unwrap_or("N/A".to_string()));
-                                    return Err("Invalid tool entry".into());
-                                }
-                                
-                            },
-                            None => {
-                                error!("Switch 'cloudify' requires '--entry=<a_tool_2_upload>'");
-                                return Err("missing OA '--entry'".into());
-                            }
-                        };
-
-                        let url = match tool.cloudify(self.aurr_mgmr.as_ref().unwrap().get_mgmr(), self.config.as_ref().unwrap()).await{
-                            Ok(url) => url,
-                            Err(e) => {
-                                error!("{:?}",e);
-                                return Err(e);
-                            }
-                        };
-
-                        info!("{} Download via: <{}>", tool.name, url)
-                    },
-
-                    "file" => {
-
-                        //removing the "file option from the switch optios. -> This should have been done before the switch, but whatever :)"
-                        let files = switch_options[1..].to_vec();
-                        let mut s:String = String::new();
-
-                        println!("Are you sure you want to cloudify the following tools:",);
-                        for t in files.iter(){
-                            println!("  {}",t);
-                        }
-
-                        print!("Answer(yes/no): ");
-                        io::stdout().flush().unwrap();
-                        std::io::stdin().read_line(&mut s).unwrap();
-
-                        if s.contains("yes"){
-                            for t in files.iter(){
-                                let ttool = match Tool::new_from_path(t){
-                                    Ok(val) => val,
-                                    Err(e) => {
-                                        error!("Could not toolify path: {} due to: {}", t,e.to_string());
-                                        exit(2)
-                                    }
-                                };
-
-                                match ttool.cloudify(self.aurr_mgmr.as_ref().unwrap().get_mgmr(), self.config.as_ref().unwrap()).await{
-                                    Ok(s)  => info!("Download {} via <{}>",ttool.name, s),
-                                    Err(e) => error!("Could not cloudify file: {} due to {}",ttool.name, e.to_string())
-                                };
-
-                            }
-                        }else{
-                            error!("Aborting upload");
-                            exit(17)
-                        }
-                    }
-
-                    _ => {
-                        error!("The provided cloudify option: <{}> is not supported!",*lsoption.first().unwrap())
-                    }
-                }
-
-                
-            },
-
-            "sync" => {
-
-                self.init_mgmr().await.unwrap();
-
-                let target = match switch_options.get(0){
-                    Some(s) => s,
-                    None => return Err("Usage: sync <Cloud_Resource_Like> <download_dir_path>".into())
-                };
-
-                let download_dir = match switch_options.get(1){
-                    Some(s) => s,
-                    None => return Err("Usage: sync <Cloud_Resource_Like> <download_dir_path>".into())
-                };
-
-                // fetching the timout from config or userinput
-                let timeout = match self.options.get("CLOUD_SYNC_TIMEOUT"){
-                    Some(s) => s.parse().expect("Not Valid u8 for CLOUD_SYNC_TIMOUT"),
-                    None => self.config.as_ref().unwrap().get::<i64>("CLOUD_SYNC_TIMEOUT").unwrap()
-                };
-
-                //fetching the interval
-                let interval = match self.options.get("ClOUD_SYNC_INTERVAL"){
-                    Some(s) => s.parse().expect("Not valid u8 for ClOUD_SYNC_INTERVAL"),
-                    None => self.config.as_ref().unwrap().get::<i64>("ClOUD_SYNC_INTERVAL").unwrap()
-                };
-
-                //Defining the resource
-                let resource = CloudResource::from_path(target, &self.aurr_mgmr.as_ref().unwrap().get_mgmr().get_type()).unwrap();
-
-                //running the pull_sync function
-                self.aurr_mgmr.as_ref().unwrap().get_mgmr().pull_sync(resource, download_dir, timeout, interval).await?;
-
-            },
-
-            "run-case" => {
-
-                self.init_mgmr().await.unwrap();
-
-                let mut tools = self.load_tools().unwrap();
-
-                let case_path = match self.options.get("case"){
-                    Some(path) => path,
-                    None => {
-                        match switch_options.first(){
-                            Some(s) => s,
-                            None => {
-                                error!("Need to provide a valid case template
-    To list all availabe cases run: <ls case> -> Provide case via: <run-case path> or <run-case --case=<path>>");
-                                
-                                exit(4)
-                            }
-                        }
-                    }
-                };
-
-                let case = match CaseTemplate::load_from_json(case_path){
-                    Ok(ct) => ct,
-                    Err(e) => {
-                        error!("Could not load case template due to: {}",e.to_string());
-                        exit(5)
-                    }
-                };
-
-                match self.aurr_mgmr.as_ref().unwrap().tools_push_execute(&mut tools, case.clone(), self.config.as_mut().unwrap()).await{
-                    Ok(results) => {
-
-                        info!("Run at target: <{}>", results);
-                    },
-
-                    Err(e) => {
-                        error!("Could not generate pull'n execute script for case: {} due to: {}", case.name, e.to_string());
-                        exit(6)
-                    }
-                };
-
-            },
-
-            "grant-access" => {
-
-                let lsoption = &switch_options[0].split("::").collect::<Vec<&str>>();
-
-                self.init_mgmr().await.unwrap();
-
-                let cr = match self.options.get("cloud-resource"){
-                    Some(s) => &s.replace("::", "/"),
-                    None => {
-                        match switch_options.get(0){
-                            Some(ss) => &ss.replace("::", "/"),
-                            None => {
-                                error!("Missing or Invalid Cloud resource: <{:?}>
-    Provide a resource on the following syntax: 
-    --cloud-resource=container::blob || --cloud-resource=container/blob || grant-access container::blob",switch_options.get(0));
-                                exit(7)
-                            }
-                        }
-                    }
-                };
-
-                println!("{}",cr);
-
-                let ct = self.aurr_mgmr.as_ref().unwrap().get_mgmr().get_type();
-
-                match self.aurr_mgmr
-                    .as_ref()
-                    .unwrap()
-                    .get_mgmr()
-                    .grant_read_access(
-                        CloudResource::from_path(cr, &ct).unwrap(),
-                         self.config.as_ref()
-                         .unwrap()
-                         .get::<u8>("CLOUD_TOKEN_READ_TIMEOUT")
-                    .unwrap()).await{
-                    Ok(s) => {
-                        info!("Access Granted Successfully - Access via: <{}>",s);
-                    },
-                    Err(e) => {
-                        error!("Could not grant-access to cloud resource due to {}",e.to_string());
-                        exit(7)
-                    }
-                }
-            },
-
-            "print-config" => {
-                print_config(&self.config)
-            },
-
-            "help" => {
-                ArgParser::print_help()
-            },
-
-            "ls" => {
-
-                //ls is only supposed to take one argument
-                //supports the syntax <lsoption>::<somefilter>
-                let lsoption = &switch_options[0].split("::").collect::<Vec<&str>>();
-
-                match *lsoption.first().unwrap(){
-                    "tools" => {
-
-                        //Loading the tools
-                        let tools = match self.load_tools(){
-                            Ok(t) => t,
-                            Err(e) => {
-                                error!("Could not load tools due to: {}",e.to_string());
-                                exit(9)
-                            }
-                        };
-
-                        let res:bool= match self.options.get("full-info"){
-                                    Some(s) => s.to_ascii_lowercase().to_string() == "true",
-                                    None => false
-                                };
-
-                        //Creating a filter for what tools to use
-                        let filter = match lsoption.get(1){
-                            None => "",
-                            Some(e) => {
-                                if *e == "all" || *e == "full"{
-                                    ""
-                                }else {
-                                    e
-                                }
-                            }
-                        };
-
-                        for tool in tools.values(){
-
-                            let print = tool.list_tool(res);
-
-                            if print.contains(filter){
-                                println!("{}",print)
-                            }
-
-                        }
-                    },
-
-                    "config" => {
-                        print_config(&self.config);
-                    },
-
-                    "case" => {
-
-        
-                        // Match statement to support the "--case" optional argument.
-                        match self.get::<String>("case"){
-                            Some(path) => {
-                                let case = match CaseTemplate::load_from_json(&path){
-                                    Ok(ct) => ct,
-                                    Err(e) => {
-                                        error!("Could not load case template due to: \n\t{}",e.to_string());
-                                        exit(5)
-                                    }
-                                };
-
-                                case.ls_case();
-                            },
-
-                            None => {
-                                let filter = match lsoption.get(1){
-                                    None => "",
-                                    Some(s) => s
-                                };
-
-                                match std::fs::read_dir(self.config.as_ref().unwrap().get::<String>("DEFAULT_CASE_DIR").unwrap()){
-                                    Ok(s) => {
-
-                                        for e in s.flatten(){
-                                            let apath = e.path().to_string_lossy().to_string();
-
-                                            let case = match CaseTemplate::load_from_json(&apath){
-                                                Ok(ct) => ct,
-                                                Err(e) => {
-                                                    error!("Could not load case template due to: \n\t{}",e.to_string());
-                                                    exit(5)
-                                                }
-                                            };
-                                            
-                                            let print = case.ls_case();
-
-                                            if print.to_lowercase().contains(&filter.to_ascii_lowercase()){
-                                                println!("CASE: <{}>:",apath);
-                                                println!("{}",print);
-                                            }
-
-                                            
-
-                                            
-                                        }
-                                            
-                                        
-                                    },
-                                    Err(e) => {
-                                        error!("Could not read case dir due to: {}",e.to_string());
-                                        exit(1337)
-                                    }
-                                };
-
-                            }
-                        };
-                    },
-                    
-
-                    "container" => {
-
-                        self.init_mgmr().await.unwrap();
-
-                        // if any filter is passed. Fix the option.
-                        match lsoption.get(1){
-                            None => {},
-                            Some(s) => {
-                                if !s.is_empty(){
-                                    self.options.insert("entry".to_string(), s.to_string());
-                                }
-                            }
-                        }
-                        
-                        //Checek if the resolution of the list option is set. 
-                        match self.options.get("entry"){
-
-                            None => {
-                                match self.aurr_mgmr.as_ref().unwrap().get_mgmr().list_containers().await{
-                                    Ok(con) => {
-                                        PrintResults::Vec(con).print(Some("Containers:"));
-                                    },
-                                    Err(e) => {
-                                        error!("Could not list containers due to: {}",e.to_string());
-                                        exit(11)
-                                    }
-                                };
-                            },
-                            Some(res) => {
-
-                                match self.aurr_mgmr.as_ref().unwrap().get_mgmr().list_blobs_container(res).await{
-                                    Ok(names) => {
-                                        if !names.is_empty(){
-                                            PrintResults::Vec(names).print(Some(format!("Container: {}",res).as_str()));
-
-                                        }else {
-                                            println!("EMPTY");
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error!("Could not list blobs in container: {} due to: {}", res, e.to_string());
-                                        exit(12)
-                                    }
-                                }
-                            }
-                        }
-
-
-
-                        
-                        
-                    }
-        
-                    "csm" => {
-                        self.init_mgmr().await?;
-                        println!("{}",self.aurr_mgmr.as_ref().unwrap().list_managers().await.unwrap());
-                    } 
-
-                    _ => {
-                        ArgParser::print_ls_error();
-                        exit(10)
-                    },
-                }   
-            },
-
-            _ => {
-                error!("Invalid or Missing Switch useage: {}",switch);
-                ArgParser::print_help()},
-
-        };
-
-        Ok(())
-    }
-
-    ///
-    /// Function to parse all optional arguments.
-    /// This function will extract all optional arguments "--<Key>=<Value>" and add it to the runtime config with the entry <Key> => <Value>
-    /// This can be used to alter any variable in the automation or execution.
-    /// Use with care
-    /// 
-    /// The function will remove all optional arguments from the argument vector so that this can be used later for some fanzy stuff. 
-    /// 
-    pub fn option_parser(&mut self) ->  Result<(), Box<dyn std::error::Error>>{
-         //New vector to collect all args that are not optional arguments.
-        let mut new_args:Vec<String> = Vec::new();
-        
-        //mapping over all optional arguments -> Casting them to lowercase
-        for args in self.args.iter(){
-
-            if args.ends_with("--help"){
-                ArgParser::print_help();
-                exit(0)
-            }
-
-            if args.starts_with("--"){
-
-                //Adding an incusion for easier list all for arguments.
-                if args.ends_with("--list-all") || args.ends_with("--full-info") || args.ends_with("--all"){
-                    self.options.insert("full-info".to_string(), "true".to_string());
-                    continue;
-                }
-                
-                match args.split_once("=") {
-                    None => {
-                        return Err(format!("Wrong use of optional argument: {:?}\n\tTo print help: ./aurr --help",args).into())
-                    },
-                    Some((k,v)) => {
-                        &self.options.insert(k.to_ascii_lowercase().replace("--",""), v.replace("\"", "").replace("\'", "").to_string())
-                    }
-                };
-
-
-            }else {
-                new_args.push(args.to_string());
-            }
+        // Easy workaround
+        if config.is_none() && cli.switch.is_ls(){
+            local_setup()?;
+            exit(1)
         }
 
-        //If there are no optional arguments -> just add use-default. 
-        if self.options.is_empty(){
-            self.options.insert("use-default".to_string(), "True".to_string());
+        //loading the aurr_core manager
+        let aurr = AurrCore::new(&config.unwrap()).await?;
+
+        match cli.switch.clone(){
+
+            Switch::Version => Ok(Cli::print_version()),
+
+            Switch::Ls { switch, fullinfo} => cli.ls( aurr, switch, fullinfo.unwrap()).await,
+
+            Switch::LocalSetup => Ok(local_setup().unwrap()),
+
+            Switch::Upload {local_path, remote_path} => cli.upload_local_resource(&aurr, local_path, &remote_path.unwrap()).await,
+            
+            Switch::Download { remote_path,download_dir } => cli.download_cloud_resource(&aurr, &remote_path, &download_dir).await,
+ 
+            Switch::Sync { remote_path, local_path ,timeout, interval} => cli.sync(&aurr, &remote_path, &local_path, timeout, interval).await,
+
+            Switch::Cloudify {local_path, remote_path, timeout} => cli.cloudify_local_resource(&aurr, local_path, &remote_path.unwrap(), timeout.unwrap()).await,
+
+            Switch::Run { obj , timeout} => cli.run(&aurr, obj, timeout).await,
+
+            Switch::GrantAccess { remote_path, permission ,timeout} => cli.grant_permissions(&aurr, &remote_path, &permission, timeout).await,
+
         }
 
-        //Whenever optional arguments is passed, use a set of new arguments for logic. 
-        self.args = new_args;
-
-        Ok(())
-
     }
 
-    pub fn print_help(){
+    /// Function to load the config.toml
+    /// This function gets called first time in the main. 
+    /// If global variables should be set, it can be done here. 
+    fn load_config(path:Option<String>, access_key: Option<String>) -> Config{
 
-        ArgParser::print_version();
-        println!("
-+--------+
-| Syntax |
-+--------+
-    ./aurr <Switch> <Optional Arguments> 
-
-
-+-------------------------------+--------------------------------------------------+
-|   SWITCH                      |  DESCRIPTION                                     |
-+-------------------------------+--------------------------------------------------+
-    run-local-setup             // Switch to run a local setup in the current folder. 
-                                    Only do this if you export Aurr somewhere. 
-                                    No Failchecks. Is called -> Does a jobb!
-
-    Upload                      // Upload a local tool/resource to the cloud
-                                    Requires: 
-                                        --account-key
-                                    
-                                    Call Options:
-                                        - upload tools::<tool_name>
-                                        - upload file <filepath1> <filepath2> .. <filepath_N>
-
-    Download                    // Download the content of a cloud resource to a local filepath
-                                    Requires: 
-                                        --account key
-                                    
-                                    Call Options: 
-                                        - download <container::blob> <local_path>
-
-    status                      // List detailed information about a target cloud resource
-                                    Requires:
-                                        --account-key
-
-    sync                        // Pull Sync the content of a cloud storage to a local path.
-                                    Requires: 
-                                        --account-key
-                                    
-                                    Call Options:
-                                        sync <some_cloud_resource> <local_dir>
-
-    Cloudify                    // Upload a local tool / resource and return a download URL
-                                    Requires: 
-                                        --account-key
-
-                                    Call Options:
-                                        - upload tools::<tool_name>
-                                        - upload file <filepath1> <filepath2> .. <filepath_N> 
-
-    Grant-Access                // Provides access to a cloud resource already in cloud. 
-                                    Requires: --account-key
-
-    Run-Case                    // Process a case-template. 
-                                    Requires: --account-key
-                                    
-                                    Call Options:
-                                        - run-case <Path/To/CaseTemplate.json>
-                                        - --case=<Path/To/CaseTemplate.json> run-case
-
-                                    Can be used to full automate a wide set of remote tasks.
-                                        - Collect Memory
-                                        - Take traige
-                                        - Image Disk
-                                        - Run Custom tools
-                                        - Run Scripts
-
-                                    To set up a custom case-template. Read docs <insert path to guide>
-
-    ls <ls-option>              // Switch to list information about different elements of the framework. 
-                                    ls-options:
-                                        - tools::<filter>        // List all available tools based on the provided config
-                                        - case::<filter>         // List information from the provided case - This prints task tempalte aswell!
-                                        - config                 // List current running config. Same as \"print-config\"
-                                        - container::<filter>    // List available container for the specific azure storage account
-                                        - blobs (TODO)           // TODO
-                                        - csm                    // List the status of each of the applied CloudServiceManagers and check if it is reachable
-    
-    print-config                //prints the current running config.
-
-
-+---------------------------+-------------------------------+-------------------------------------------------------------+
-|   OPTIONAL-ARGUMENT       |   DEFAULT_VALUES              |   DESCRIPTION                                               |
-+---------------------------+-------------------------------+-------------------------------------------------------------+
-    --account-key=<Key>                                     // Needer for all interaction with the cloud. 
-    --config=<path>         | ./Config.toml                 // Path to the Config.toml -> Default path is ./Config.toml
-    --use-default=<bool>    | true                          // Use to run whatever switch with default parameters.  
-    --case=<path>                                           // If you want to run a case template. Provide the path to the case template
-    --tool-config=<path>    | ./data/templates/tools.json   // Path to tool configuration <INSERT DEFAULT PATH HERE>
-    --entry=<VALUE>                                         // ENTRY in the tool-configuration to use. need to be passed together with '--tool-config'
-    --full-info|list-all                                    // Used to list more information when ls is used.   
-
-+----------+
-| Examples |
-+----------+
-
-# Cmdline to run a local setup. This will create the needed folders and unpack some basic files: 
-    -> ./aurr --run-local-setup                                                 //Runs a local setup. Should make it easy to pass the tool around
-
-# Examples of Cloudify  
-    -> ./aurr --account-key=<key> cloudify tools::<tool_name>                   // Upload a tool to the cloud by config and tool config.    
-    -> ./aurr --account-key=<key> cloudify path/to/file1 path/to/file2          //Uploads the targeted files to the cloud.  
-
-# List tools: 
-    -> ./aurr ls tools                                                          // Lists all tools based on the provided Tools.json file
-    -> ./aurr ls tools::<tool_name>                                             // Lists only information about the specified tool \"Surge-Collect\"
-    -> ./aurr ls tools::<tool_name> --list-all                                  // List all available information.
-
-# List blobs in a container (AZURE CLOUD): 
-    -> ./aurr ls container                                                      // Lists all containers in the cloud-root 
-    -> ./aurr ls container::upload                                              // Lists content of a specific container. \"upload\" can be changed to any container in the cloud-root 
-
-# Example of run a case: 
-    -> ./aurr --account-key=<key> run-case <case_path>                          // Runs a set of TaskTemplates based on a case_tempalte. 
-");
-
-        exit(1337)
+        let mut builder = Config::builder()
+            .add_source(File::new(&path.unwrap_or("Config.toml".to_string()), FileFormat::Toml).required(true));
+        
+        
+        if let Some(key) = access_key {
+            builder = builder.set_override("AZURE_ACCESS_KEY", key).unwrap();
+        }
+        
+        match builder.build(){
+            Ok(conf) => {
+                conf
+            },
+            Err(e) => {
+                println!("Could not load config due to: {}
+                If it is the first time running -> Setup a local enviroment with \"./aurr-manager run-local-setup\"
+                If config file does exists, pass it via an optional argument: \"--config=<path/to/Config.toml>\"  
+                ",e.to_string());
+                exit(13)
+            }
+        }
     }
-    
-    pub fn print_version(){
+
+    fn get_tool(&self, local_resource:LocalResource) -> Option<Tool>{
+
+        match local_resource {
+
+            LocalResource::File { path } => {
+
+                
+                match Tool::new_from_path(&path){
+                        Ok(t) => Some(t.clone()),
+                        Err(_) => None
+                }
+            },
+            LocalResource::Tool { name } => {
+
+                //loading all the tools
+                let tools = self.load_tools().unwrap();
+                
+                tools.get(&name).cloned()
+            },
+            LocalResource::Folder => None
+        }
+    }
+
+    /// Function to print a config on a nice format. (Not very nice tho :())
+    fn print_config(config:&Option<Config>){
+
+        let mut v:Vec<String> = Vec::new();
+        for e in config.as_ref().unwrap().cache.clone().to_string().trim_matches('{').trim_matches('}').split(","){
+            v.push(e.to_string());
+        }
+
+        v.sort();
+        println!("{:#?}",v);
+    }
+
+    /// 
+    /// Function to print the version of the software
+    /// 
+    fn print_version(){
 
         println!(
 "
@@ -976,43 +451,276 @@ impl ArgParser{
 
     }
 
-    ///
-    /// Just a function to print a error if LS is used wrong :)
-    pub fn print_ls_error(){
-        error!("Need to provide a valid ls-option LIKE: \n
-    - tools::<filter>        // List all available tools based on the provided config
-    - case                   // List information from the provided case - This prints task tempalte aswell!
-    - config                 // List current running config. Same as \"print-config\"
-    - cloud (TODO)           // List basic info about the connected cloud
-    - containers::<filter>   // List available container for the specific azure storage account
-    - blobs (TODO)           // List a set of blobs from the specific azure storage account        
-                        ");
+    /// Function to load the tools
+    /// Default path is ./data/template/tools.json -> Can be changed via the argument --tools
+    fn load_tools(&self) -> Result<HashMap<String,Tool>, Box<dyn std::error::Error>>{
+        let tools = Tool::load_from_json(&self.tools).expect("Could not load tools - Check if tools file exist!");
+        Ok(tools)
+    }
+    
+    /// Function to load a set of tools
+    fn print_tools(&self,filter: Option<String>, fullinfo:bool) -> Result<(), Box<dyn std::error::Error>>{
+
+        let tools = self.load_tools().unwrap();
+
+        let f = match filter{
+            None => "".to_string(),
+            Some(s) => s
+        };
+
+        for tool in tools.values(){
+
+            let print = tool.list_tool(fullinfo);
+
+            if print.contains(&f){
+                println!("{}",print)
+            }
+
+        }
+
+        Ok(())
     }
 
-    ///
-    /// Function to load the tools eighter based on running config or provided arguments. 
-    /// Provided arguments should be default.
-    /// 
-    pub fn load_tools(&self) -> Result<HashMap<String,Tool>, Box<dyn std::error::Error>>{
+    /// Function to list a case
+    fn list_case(&self, path:&Option<String>) -> Result<(), Box<dyn std::error::Error>>{
 
-        let a = match self.config.clone().unwrap().get::<String>("LOCAL_TOOL_INDEX"){
-                    Ok(path) => path,
+        match path{
+            Some(_path) => {
+
+                match CaseTemplate::load_from_json(&_path){
+                    Err(e) => Err(format!("Could not load CaseTemplate due to: {}",e.to_string()).into()),
+                    Ok(ct) => {
+                        let s = ct.ls_case();
+                        println!("<{}>{}",_path.clone().green(),s);
+                        Ok(())
+                    }
+                }
+           },
+
+            None => match std::fs::read_dir(self.case_dir.clone().unwrap()){
+
+                Ok(entry) => {
+                    for e in entry.flatten(){
+                        let apath = e.path().to_string_lossy().to_string();
+                        let case = CaseTemplate::load_from_json(&apath)?;
+                        println!("<{}>{}",apath.green(),case.ls_case());
+                    };
+
+                    Ok(())
+
+                },
+                Err(e) => Err(format!("Could not read case directory due to: {}",e.to_string()).into())
+            }
+        }
+
+
+        
+    }
+
+    async fn list_csm(&self, aurr:&AurrCore, filter:&Option<String>) -> Result<(), Box<dyn std::error::Error>>{
+
+        println!("{}",aurr.list_managers().await?);
+        Ok(())
+    }
+
+    /// Function to pass all the information to list in the cloud down to the aurr-core!
+    async fn list_containers(&self, aurr:&AurrCore, cloud_string:Option<String>) -> Result<(), Box<dyn std::error::Error>>{
+
+        let r = match cloud_string.clone(){
+            None => aurr.get_mgmr().list_containers().await,
+            Some(path) => aurr.get_mgmr().list_blobs_container(&path).await
+        };
+
+        match r {
+            Ok(val) => {
+
+                let s = match cloud_string{
+                    None => format!("<{}>",aurr.get_mgmr().get_name().green()),
+                    Some(ss) => format!("<{}> <{}>",aurr.get_mgmr().get_name().green(),ss.green())
+                };
+
+                println!("<{}> {}",aurr.get_mgmr().get_type().green(),s);
+                PrintResults::Vec(val).print(None)},
+            Err(e) => return Err(format!("Could not list container due to: {}",e.to_string()).into())
+        }
+
+        Ok(())
+    }
+
+    async fn ls(&self, aurr:AurrCore, switch:ListObject, fullinfo:bool) -> Result<(), Box<dyn std::error::Error>>{
+
+        match switch{
+
+            ListObject::Config => Cli::print_config(&Some(aurr.config)),
+
+            ListObject::Tools { filter } => self.print_tools(filter,fullinfo)?,
+
+            ListObject::Case { path } => self.list_case(&path)?,
+
+            ListObject::Cloud { cloud_string } => self.list_containers(&aurr, cloud_string).await?,
+
+            ListObject::Csm { filter } => self.list_csm(&aurr, &filter).await?,
+
+            _ => return Err("The provided ls option is not supported!".into())
+
+        }
+
+
+        Ok(())
+    }
+
+    /// Function to upload a local resource 
+    async fn upload_local_resource(&self, aurr:&AurrCore, local:LocalResource, remote:&str)  -> Result<(), Box<dyn std::error::Error>>{
+
+        let atool:Tool = match local {
+
+            LocalResource::File { path } => {
+
+                let mut s = String::new();
+
+                println!("Are you sure you want to upload the following:\n{}", path.clone().red());
+
+                print!("Answer(yes/no): ");
+                io::stdout().flush().unwrap();
+                std::io::stdin().read_line(&mut s).unwrap();
+
+                if s.eq("yes"){
+                    match Tool::new_from_path(&path){
+                        Ok(t) => t.clone(),
+                        Err(e) => return Err(format!("Could not toolify path: {}",e.to_string()).into())
+                    }
+
+                }else{
+                    return Err("Upload aborted".into())
+                }
+
+            },
+
+            LocalResource::Tool { name } => {
+
+                //loading all the tools
+                let tools = self.load_tools().unwrap();
+                //Extracting the tool
+                let t = match tools.get(&name){
+                    Some(a) => a,
+                    None => return Err("Provided tool name does not exist in the tool index".into())
+                };
+                t.clone()
+            },
+            LocalResource::Folder => todo!()
+
+        };
+
+        match aurr.upload_tool(atool.clone(), Some(remote)).await{
+                    Ok(cr) => info!("Uploaded: <{}> to <{}> <{}> <{}>", atool.name,aurr.get_mgmr().get_name(), aurr.get_mgmr().get_type(), cr.get_info().unwrap()),
                     Err(e) => {
-                        return Err(e.into());
+                        error!("Could not upload tool due to {}",e.to_string());
+                        return Err(e)
+                    }
+                }
+
+
+        Ok(())
+    }
+
+    /// A function to pass whatever you want to download down to the download function in the aurrcore
+    async fn download_cloud_resource(&self, aurr:&AurrCore, remote:&str, local:&str) -> Result<(), Box<dyn std::error::Error>>{
+
+        aurr.download_cloud_resource(remote, local).await?;
+
+        Ok(())
+    }
+
+    async fn cloudify_local_resource(&self, aurr:&AurrCore, local:LocalResource, remote:&str, timeout:u8) -> Result<(), Box<dyn std::error::Error>>{
+        
+        let tool = match self.get_tool(local.clone()){
+            Some(t) => t,
+            None => return Err(format!("The provided tool: {:?} is not a valid path or in the tool index",local).into())
+        };
+
+        let url = tool.cloudify(aurr.get_mgmr(), &remote.to_string(), timeout).await?;
+
+        println!("{}",url);
+
+
+
+        Ok(())
+    }
+
+    /// A wrapper function to pass the sync arguments down to the manager.
+    async fn sync(&self, aurr:&AurrCore, remote:&str, local:&str, timeout:i64, check_interval:i64) -> Result<(), Box<dyn std::error::Error>>{
+
+        let r = CloudResource::from_path(remote, &aurr.get_mgmr().get_type())?;
+        aurr.get_mgmr().pull_sync(r, local, timeout, check_interval).await
+    }
+
+    /// 
+    /// Function to run a predefined automatic task. 
+    /// 
+    async fn run(&self, aurr:&AurrCore, run_object:RunObject, timeout:u8) -> Result<(), Box<dyn std::error::Error>>{
+
+        match run_object{
+            RunObject::Case { path, name } => {
+
+                let mut tools = self.load_tools()?;
+
+                let case = match path{
+                    Some(p) => CaseTemplate::load_from_json(&p)?,
+                    None => {
+                        match name{
+                            Some(n) => CaseTemplate::load_from_path_name(&n, &aurr.config.get::<String>("DEFAULT_CASE_DIR").unwrap())?,
+                            None => return Err("Error - We should not be in this situation. Error in code".into())
+                        }
                     }
                 };
 
-        let toolconfig = match self.options.get("tool-config"){
-            Some(conf) => conf,
-            None => &a
-        };
-        
-        let tools = Tool::load_from_json(toolconfig).unwrap();
-        Ok(tools)
+                match aurr.tools_push_execute(&mut tools, case.clone(), &aurr.config, timeout).await{
+                    Ok(s) => {
+                        info!("Run the following oneliner <Timeout UTC+{}> on the target system:",timeout );
+                        println!("\t<{}>",s.blue());
+                        Ok(())
+                    },
+                    Err(e) => Err(format!("Could not run case: {} due to: {}",case.name, e.to_string()).into())
+                }
+            }
+        }
     }
+
+    /// 
+    /// Function to pass variables and grant permissions to a given target
+    /// 
+    async fn grant_permissions(&self, aurr:&AurrCore, remote:&str, perm:&str, timeout:u8) -> Result<(), Box<dyn std::error::Error>>{
+
+        let cr = CloudResource::from_path(remote, &aurr.get_mgmr().get_type())?;
+
+        match perm {
+
+            "r" => {
+                let s = aurr.get_mgmr().grant_read_access(cr, timeout).await?;
+                info!("Resource can be downloaded <Timeout: UTC+{}>, via :",timeout);
+                println!("\t<{}>",s.blue())
+            },
+
+            "rw" | "wr" => {
+                let s = aurr.generate_sas_upload_token(cr, timeout).await?;
+                info!("Resource can be written too <Timeout: UTC+{}>, via :",timeout);
+                println!("\t<{}>",s.blue())
+            },
+
+            _ => return Err("The supported permission string is not supported!".into())
+        }
+
+
+
+
+        Ok(())
+    }
+
 }
+
 
 #[tokio::main]
 async fn main() {
-    let  ap = ArgParser::new().await.unwrap();
+    Cli::init().await.expect("You did something wrong :(");
+
 }

@@ -8,9 +8,9 @@ use crate::{error, impl_has_name, lib::{aurr_core::{
         HasName, load_json, load_json_btreemap, print_btmap
     }, tools::{Tool, ToolConfig}}};
 
-use config::Config;
+use config::{Case, Config};
 use serde::de::DeserializeOwned;
-use std::{collections::{BTreeMap, HashMap}, hash::Hash, process::exit};
+use std::{collections::{BTreeMap, HashMap}, fs, hash::Hash, process::exit};
 
 /// 
 /// A case structure for the case template. 
@@ -61,6 +61,32 @@ impl CaseTemplate{
             };
         
         Ok(ct)
+    }
+
+
+    /// 
+    /// Function to load all case templates in a directory and load the first one with the desired name
+    /// 
+    pub fn load_from_path_name(name:&str, path:&str)-> Result<CaseTemplate,Box<dyn std::error::Error>>{
+
+        let files = fs::read_dir(path)?;
+
+        for f in files.into_iter(){
+
+            let case = CaseTemplate::load_from_json(
+                f.unwrap()
+                .path()
+                .as_mut_os_str()
+                .to_str()
+                .expect("The provided path cannot be converted to os path :("))?;
+
+            if case.name.eq(name){
+                return Ok(case);
+            }
+        }
+
+        Err(format!("Provided case template name does not exist in direcory: {}", path).into())
+
     }
 
     ///

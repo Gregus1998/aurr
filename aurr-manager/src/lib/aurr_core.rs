@@ -313,7 +313,7 @@ T: Debug
 ///     -> Some random condig file that needs to include all you need to interact with the cloud and the desired tools. 
 /// 
 pub struct AurrCore {
-    config:Config,
+    pub config:Config,
     cloudservicemanagers: HashMap<String,CloudServiceManager>,
     csm:String
 }
@@ -459,7 +459,7 @@ impl AurrCore{
         let mut urls:HashMap<String,String> = HashMap::new();
 
         for tool in tools.iter_mut(){
-            let s = tool.cloudify(&self.get_mgmr(), &config).await.unwrap();
+            let s = tool.cloudify(&self.get_mgmr(), todo!(), 4).await.unwrap();
             urls.insert(tool.name.clone(), s);
         }
         Ok(urls)
@@ -473,7 +473,7 @@ impl AurrCore{
         let mut urls:HashMap<String,String> = HashMap::new();
 
         for (name,tool) in tools.iter_mut(){
-            let s = tool.cloudify(&self.get_mgmr(), &config).await.unwrap();
+            let s = tool.cloudify(&self.get_mgmr(), todo!(), 4).await.unwrap();
             urls.insert(name.clone(), s);
         }
         Ok(urls)
@@ -490,7 +490,7 @@ impl AurrCore{
     ///         e. Cleanup 
     ///
     /// 
-    pub async fn tools_push_execute(&self, tools:&mut HashMap<String,Tool>,case_template:CaseTemplate, config:&Config) -> Result<String, Box<dyn std::error::Error>>{
+    pub async fn tools_push_execute(&self, tools:&mut HashMap<String,Tool>,case_template:CaseTemplate, config:&Config, timeout:u8) -> Result<String, Box<dyn std::error::Error>>{
 
         info!("Running <Tool Push Execute> for template: {}", case_template.name);
         //Fetching and converting the OS for the given task
@@ -498,6 +498,8 @@ impl AurrCore{
 
         //Initiating a vector with the setup steps.
         let mut cmds:Vec<String> = os.get_setup(&config);
+
+        let case_container = case_template.name().to_string().to_ascii_lowercase();
 
         //Not a very beutiful solution here, But it works. Another argument to rework everything >:()
         for (_task,ss) in case_template.task_template.tasks().iter(){
@@ -523,14 +525,14 @@ impl AurrCore{
                 }
 
                 //Chanign the upload container to a case specific location.AZURE_UPLOAD_CONTAINER_NAME
-                tool_config.edit_entry("CLOUD_DEFAULT_UPLOAD_LOCATION".to_string(), case_template.name().to_string().to_ascii_lowercase()).unwrap();
-                //tool_config.edit_entry("AZURE_UPLOAD_CONTAINER_NAME".to_string(), case_template.name().to_string().to_ascii_lowercase()).unwrap();
-                //tool_config.edit_entry("CLOUD_DEFAULT_UPLOAD_LOCATION".to_string(), "upload".to_string()).unwrap();
+                tool_config.edit_entry("CLOUD_DEFAULT_UPLOAD_LOCATION".to_string(), case_container.clone()).unwrap();
+                tool_config.edit_entry("CLOUD_TOKEN_UPLOAD_TIMEOUT".to_string(), timeout.to_string()).unwrap();
 
                 self.generate_entry_toolconfig(&mut tool_config, tool).await.unwrap();
 
                 //Cloudify and push the tool on the cmds vectord
-                let url = tool.cloudify(&self.get_mgmr(), &config).await.unwrap();
+                let url = tool.cloudify(&self.get_mgmr(),&case_container, timeout).await.unwrap();
+
 
                 let down_template = config.get::<String>(&get_download_template(&case_template.task_template.shell).unwrap()).unwrap();
                 
