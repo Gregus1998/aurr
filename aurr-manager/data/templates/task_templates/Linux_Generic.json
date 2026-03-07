@@ -1,7 +1,7 @@
 {
     "name" : "Ubuntu Linux Generic Template",
     "os" : "Linux Ubuntu",
-    "shell" : "bash",
+    "shell" : "Bash",
     "tasks" : {
         "1 memory" : {"Surge-Collect-Linux" : ["Default_Linux_Upload_Azure"]},
         "2 triage" : null,

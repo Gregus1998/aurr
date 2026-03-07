@@ -5,7 +5,7 @@
     The goal is to load a template, and then use this to create a list of tasks that needs to be done for everything to work.
 */
 use crate::{error, impl_has_name, lib::{aurr_core::{
-        HasName, load_json, load_json_btreemap, print_btmap
+        HasName, load_json, load_json_btreemap, print_btmap, Shell
     }, tools::{Tool, ToolConfig}}};
 
 use config::{Case, Config};
@@ -28,7 +28,7 @@ pub struct CaseTemplate{
 pub struct TaskTemplate {
     name : String,
     pub os : String,
-    pub shell :String,
+    pub shell :Shell,
     tasks : BTreeMap<String, Option<BTreeMap<String,Vec<String>>>> //Cursed nested structure >:()
 }
 
@@ -36,6 +36,19 @@ impl_has_name!(TaskTemplate);
 impl_has_name!(CaseTemplate);
 
 impl CaseTemplate{
+
+    pub fn new_from_task(name:Option<String>, hostname:Option<String>, tasktemplate:TaskTemplate) -> CaseTemplate{
+
+        let n = match name{
+            Some(nn) => nn,
+            None => uuid::Uuid::new_v4().to_string()
+        };
+
+        let h = hostname.unwrap_or("N/A".to_string());
+
+        CaseTemplate { name: n, hostname: h, task_template: tasktemplate }
+
+    }
 
     /// 
     /// Function to load a nested json structure. a Case template need a path to a task template. 
@@ -116,6 +129,30 @@ impl CaseTemplate{
 
 
 impl TaskTemplate {
+
+
+     /// 
+    /// Function to load all task templates in a directory and load the first one with the desired name
+    /// 
+    pub fn load_from_path_name(name:&str, path:&str)-> Result<TaskTemplate,Box<dyn std::error::Error>>{
+
+        let files = fs::read_dir(path)?;
+
+        for f in files.into_iter(){
+
+            let task: TaskTemplate = match load_json(f.unwrap().path().as_os_str().to_str().unwrap()){
+                Ok(s) => s,
+                Err(e) => return Err(format!("Could not load task tempalte due to: {}",e.to_string()).into())
+            };
+
+            if task.name.eq(name){
+                return Ok(task);
+            }
+        }
+
+        Err(format!("Provided case template name does not exist in direcory: {}", path).into())
+
+    }
 
     pub fn load_from_json<T>(path:&str) -> Result<BTreeMap<String, T>,Box<dyn std::error::Error>>
     where
@@ -304,7 +341,7 @@ impl std::fmt::Display for TaskTemplate {
         let s = format!("
         TaskName: {},
         OS: {},
-        Shell: {},
+        Shell: {:?},
         Tasks: {}
         ",self.name.clone(),self.os,self.shell,print_btmap(&tasks));
         f.write_str(s.as_str())

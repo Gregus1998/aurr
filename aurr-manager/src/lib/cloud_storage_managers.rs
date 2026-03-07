@@ -12,9 +12,10 @@ use crate::{error, lib::{
 ///
 /// Just a enum to list all possible carriers / Cloud Managers.
 /// 
-pub enum CloudTypes{
+pub enum CarrierTypes{
     Azure,
     S3,
+    SMB
 }
 
 ///
@@ -216,11 +217,11 @@ impl CloudServiceManagerTrait for CloudServiceManager{
 
 impl CloudServiceManager {
 
-    pub fn new(cloud_type:CloudTypes, config:&Config) -> Result<CloudServiceManager, Box<dyn std::error::Error>> {
+    pub fn new(cloud_type:CarrierTypes, config:&Config) -> Result<CloudServiceManager, Box<dyn std::error::Error>> {
         
         match cloud_type{
             
-            CloudTypes::Azure => {
+            CarrierTypes::Azure => {
                 Ok(
                     CloudServiceManager::Azure({
                         AzureStorageMgmt::from_access_key(
@@ -269,6 +270,7 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
             Ok(_) => Ok(true),
             Err(e) => {
                 error!("Connection Check to Azure Cloud Failed due to {}",e.to_string());
+                info!("Is the Azure Access Key present? Run switch <ls config> to verify. Account Key can be passed as env_var with: <export AURR_KEY=\"<some_account_key>\">");
                 Ok(false)
             }
         }
@@ -381,7 +383,7 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
     fn get_info(&self) -> String {
 
 
-        format!("via Azure Storage Cloud: <Account: {}>", self.account_name)
+        format!("via Azure Storage Cloud: Account: <{}>", self.account_name)
     }
 
     ///

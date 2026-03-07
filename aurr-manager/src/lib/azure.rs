@@ -3,15 +3,12 @@ use crate::{error, info, lib::{
     aurr_core::LocalResource}};
 
 use async_recursion::async_recursion;
-use chrono::Utc;
 use colored::Colorize;
-use tracing_subscriber::fmt::format;
-use std::{collections::{BTreeMap, HashMap}, error::Error, fmt::Debug, fs::{self, File}, hash::Hash, io::{Read, Write}, process::exit, thread::sleep};
-use azure_core::{
-    cloud, http::check_success, time::{Duration,OffsetDateTime}
+use std::{collections::{BTreeMap,}, error::Error, fmt::Debug, fs::{self, File}, io::{Read, Write}, process::exit, thread::sleep};
+use azure_core::{time::{Duration,OffsetDateTime}
 };
 use azure_storage_blobs::
-    {blob::{self, Blob, BlobProperties}, 
+    {blob::{Blob, BlobProperties}, 
         container::Container, 
         prelude::*
     };
@@ -203,7 +200,12 @@ impl AzureStorageMgmt {
         let mut containers:Vec<Container> = Vec::new();
 
         while let Some(r) = response.next().await{
-            containers = r.unwrap().containers;
+            containers = match r{
+                Ok(con) => con.containers,
+                Err(e) => {
+                    return Err(format!("{}",e.into_inner().unwrap()).into());
+                }
+            };
         }
 
         Ok(containers)

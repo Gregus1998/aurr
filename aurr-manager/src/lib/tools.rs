@@ -1,15 +1,14 @@
 //Import from local crate
 use crate::{error, impl_has_name, lib::{aurr_core::{
-        print_map,
-        HasName,
-        load_manyjson_hashmap_by_name}, 
+        AurrCore, HasName, load_manyjson_hashmap_by_name, print_map}, 
     cloud_storage_managers::{CloudServiceManager,CloudServiceManagerTrait}}
 };
 
+use azure_storage_blobs::prelude::RetentionPolicy;
 use config::{Config, Value};
 use serde::de::DeserializeOwned;
 use tracing::info;
-use std::{fmt::{Debug, Display}, path::Path, str::FromStr};
+use std::{fmt::{Debug, Display}, fs::{self, File}, path::Path, str::FromStr};
 
 //Module to handle the setup of all tools. 
 use std::collections::HashMap;
@@ -27,7 +26,8 @@ use colored::{self, Colorize};
 pub enum MandatorySteps{
     Generate,
     Target,
-    Compile
+    Compile,
+    Require
 }
 
 impl Display for MandatorySteps {
@@ -35,7 +35,8 @@ impl Display for MandatorySteps {
         match self{
             MandatorySteps::Compile => f.write_str("compile"),
             MandatorySteps::Generate  => f.write_str("generate"),
-            MandatorySteps::Target => f.write_str("target")
+            MandatorySteps::Target => f.write_str("target"),
+            MandatorySteps::Require => f.write_str("require")
         }
     }
     
@@ -58,7 +59,8 @@ impl MandatorySteps{
         match &self {
             MandatorySteps::Generate => "Generate".to_string(),
             MandatorySteps::Target => "Target".to_string(),
-            MandatorySteps::Compile => "Compile".to_string()
+            MandatorySteps::Compile => "Compile".to_string(),
+            MandatorySteps::Require => "Require".to_string()
         }
     }
 }
@@ -269,6 +271,9 @@ impl Tool {
             MandatorySteps::Compile => {
                 None
             }
+            MandatorySteps::Require => {
+                None
+            }
 
             MandatorySteps::Target => {
 
@@ -329,6 +334,84 @@ impl Tool {
         let url = cloud_manager.grant_read_access(cr, timeout).await.unwrap();
 
         Ok(url)
+    }
+
+}
+
+/// 
+/// The toolSupportObject is directly linked to mandatory step requred. 
+/// This will usually be files like tool config files that should be passed to the target system before execution. 
+/// It should be possible to process mandatory steps like generating tokens and replacing placeholders  runtime.
+/// 
+#[derive(serde::Deserialize, Debug, Clone)]
+pub struct ToolSupportObject{
+    pub name:String,
+    pub author: String,
+    pub localpath:String,
+    pub config_tag:String,
+    pub mandatory_steps:Option<HashMap<MandatorySteps,Vec<String>>>,
+}
+impl_has_name!(ToolSupportObject);
+
+impl ToolSupportObject{
+
+    /// Function to load the ToolsSupportObjects from a path
+    pub fn load_from_json<T>(path:&str) -> Result<HashMap<String, T>,Box<dyn std::error::Error>>
+    where
+        T: DeserializeOwned + HasName + Clone,
+    {
+        load_manyjson_hashmap_by_name(path)
+    }
+
+    /// A function to process all the mandatory spets for a target ToolSupportObject
+    pub async fn process_mandatory_steps(&self, aurr:&AurrCore,config:&ToolConfig, content:&mut String) -> Result<(),Box<dyn std::error::Error>>{
+
+        for (t,v) in self.mandatory_steps.as_ref().unwrap(){
+
+            match t{
+
+                MandatorySteps::Generate => {
+
+                    let generated_values = aurr.handle_generation(config, v.to_vec()).await?;
+                    
+                    let mut new_string = content.clone();
+
+                    for (a,b) in generated_values.iter(){
+                        let string_to_replace = format!("${}",a);
+                        new_string = new_string.replace(&string_to_replace, b);
+                    }
+                    content.clear();
+                    content.push_str(&new_string);
+
+                },
+
+                _ => return Err("Mandatory step for ReuiredObject is not supported".into())
+            }
+        }
+
+
+        Ok(())
+    } 
+
+    ///
+    /// A functiong to process and cloudify a ToolSupportObject
+    /// 
+    pub async fn process_cloudify(&self, aurr:&AurrCore, config:&ToolConfig) -> Result<String,Box<dyn std::error::Error>>{
+
+        // Extracting the content of the Support object file
+        let mut content = fs::read_to_string(&self.localpath)?;
+
+        // Processing the mandatory steps. 
+        self.process_mandatory_steps(aurr, config, &mut content).await?;
+        let new_file_path = format!("{}_{}", &self.localpath, uuid::Uuid::new_v4());
+        fs::write(&new_file_path, content)?;
+
+        let upload = config.get::<String>("CLOUD_DEFAULT_UPLOAD_LOCATION").unwrap();
+
+        let s = aurr.get_mgmr().upload(super::aurr_core::LocalResource::Text(new_file_path),&upload).await?;        
+
+        let timeout = config.get::<u8>("CLOUD_TOKEN_UPLOAD_TIMEOUT").unwrap();
+        Ok(aurr.get_mgmr().grant_read_access(s, timeout).await?)
     }
 
 }

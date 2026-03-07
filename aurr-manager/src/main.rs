@@ -1,35 +1,25 @@
 //Imported modules
 mod lib;
 
-use azure_core::time;
 use clap::ArgGroup;
-use colored::Colorize;
 use crossterm::style::Stylize;
-use futures::future::ok;
+use crate::lib::aurr_core::load_json;
 //Imports:
 use lib::aurr_core::AurrCore;
 use lib::template::*;
 use lib::logging::Logger;
 use config::{Config, File, FileFormat};
 use lib::tools::{Tool};
-use tracing_subscriber::filter::targets;
 use std::collections::HashMap;
-use std::env;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::io::{self, Write};
 use std::process::exit;
-use serde::Deserialize;
 use clap::{Parser, Subcommand};
 
-
-use crate::lib::azure::AzureCloudResource;
 use crate::lib::cloud_storage_managers::CloudResource;
 use crate::lib::cloud_storage_managers::CloudServiceManagerTrait;
-use crate::lib::local_setup;
-use crate::lib::argparser as Arg;
 use crate::lib::local_setup::local_setup;
-use crate::lib::tools;
 
 /// Function to load the config.toml
 /// This function gets called first time in the main. 
@@ -209,7 +199,7 @@ enum Switch {
         #[command(subcommand)]
         obj:RunObject,
 
-        #[arg(help = "Timout of the token validity", default_value = "12")]
+        #[arg(help = "Timout of the token validity", default_value = "12", long, short,)]
         timeout:u8
     },
 
@@ -280,9 +270,28 @@ pub enum RunObject{
         #[arg(help = "Local_PathLike_String - Path/to/case/template.json", short,long)]
         path:Option<String>,
 
-        #[arg(help = "Local_PathLike_String - Path/to/case/template.json",  short,long)]
+        #[arg(help = "String - Name of Case Template",  short,long)]
         name:Option<String>
-    }
+    },
+
+    #[command(about = "To run a task template",
+    group = ArgGroup::new("task")
+        .args(["path", "name"])
+        .required(true)
+        .multiple(false))]
+    Task {
+        #[arg(help = "Local_PathLike_String - Path/to/task/template.json", short,long)]
+        path:Option<String>,
+
+        #[arg(help = "String - Name of Task Template",  short,long)]
+        name:Option<String>,
+
+        #[arg(help = "Optional taskname_name of a specific task - locations in cloud will be named after this. Random UID by default",  short,long)]
+        task_name:Option<String>,
+
+        #[arg(help = "Optional hostname", short,long)]
+        hostname:Option<String>,
+    },
 }
 
 
@@ -607,6 +616,7 @@ impl Cli{
                 };
                 t.clone()
             },
+
             LocalResource::Folder => todo!()
 
         };
@@ -660,6 +670,7 @@ impl Cli{
     async fn run(&self, aurr:&AurrCore, run_object:RunObject, timeout:u8) -> Result<(), Box<dyn std::error::Error>>{
 
         match run_object{
+
             RunObject::Case { path, name } => {
 
                 let mut tools = self.load_tools()?;
@@ -673,6 +684,36 @@ impl Cli{
                         }
                     }
                 };
+
+                match aurr.tools_push_execute(&mut tools, case.clone(), &aurr.config, timeout).await{
+                    Ok(s) => {
+                        info!("Run the following oneliner <Timeout UTC+{}> on the target system:",timeout );
+                        println!("\t<{}>",s.blue());
+                        Ok(())
+                    },
+                    Err(e) => Err(format!("Could not run case: {} due to: {}",case.name, e.to_string()).into())
+                }
+            },
+
+            RunObject::Task { path, name , task_name, hostname} => {
+                let task:TaskTemplate = match path{
+                    Some(p) => {
+                        match load_json(&p){
+                            Ok(s) => s,
+                            Err(e) => return Err(format!("Could not load task tempalte due to: {}",e.to_string()).into())
+                        }
+                    },
+                    None => {
+                        match name{
+                            Some(n) => TaskTemplate::load_from_path_name(&n, &aurr.config.get::<String>("DEFAULT_TASK_DIR").unwrap())?,
+                            None => return Err("Error - We should not be in this situation. Error in code".into())
+                        }
+                    }
+                };
+
+                let case = CaseTemplate::new_from_task(task_name, hostname, task);
+
+                let mut tools = self.load_tools()?;
 
                 match aurr.tools_push_execute(&mut tools, case.clone(), &aurr.config, timeout).await{
                     Ok(s) => {
@@ -702,7 +743,7 @@ impl Cli{
             },
 
             "rw" | "wr" => {
-                let s = aurr.generate_sas_upload_token(cr, timeout).await?;
+                let s = aurr.get_mgmr().grant_upload_token(cr, timeout).await?;
                 info!("Resource can be written too <Timeout: UTC+{}>, via :",timeout);
                 println!("\t<{}>",s.blue())
             },
