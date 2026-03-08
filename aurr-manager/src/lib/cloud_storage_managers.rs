@@ -132,7 +132,7 @@ impl CloudServiceManagerTrait for CloudServiceManager{
         match self{
             CloudServiceManager::Azure(asm) => Ok(
                 CloudResource::Azure(
-                    asm.upload_resource(&resource, &resource.get_name(),some_cloud_storage_path, true).await.unwrap()))
+                    asm.upload_resource(&resource, &resource.get_base_name(),some_cloud_storage_path, true).await.unwrap()))
         }
     }
 
@@ -381,7 +381,6 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
     /// Trait Function to get metadata about the azure manager.
     /// 
     fn get_info(&self) -> String {
-
 
         format!("via Azure Storage Cloud: Account: <{}>", self.account_name)
     }

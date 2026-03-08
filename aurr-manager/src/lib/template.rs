@@ -6,7 +6,7 @@
 */
 use crate::{error, impl_has_name, lib::{aurr_core::{
         HasName, load_json, load_json_btreemap, print_btmap, Shell
-    }, tools::{Tool, ToolConfig}}};
+    }}};
 
 use config::{Case, Config};
 use serde::de::DeserializeOwned;

@@ -5,7 +5,7 @@
     "shell" : "Powershell",
     "tasks" : {
         "Default" : {
-            "Velociraptor-Windows-AMD64" : ["Default_Windows_Upload_Azure"]
+            "Velociraptor-Linux-AMD64" : ["Default"]
         }
     }
 }

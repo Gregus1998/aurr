@@ -1,5 +1,5 @@
 {
-    "name" : "testvelocase",
+    "name" : "TestVeloLinux",
     "hostname" : "Hostname",
     "task_template" : "/home/cyfjonass/aurr/aurr-manager/data/templates/task_templates/Windows_Velo_Generic.json"
 }

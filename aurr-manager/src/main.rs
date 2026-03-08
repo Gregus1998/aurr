@@ -2,8 +2,11 @@
 mod lib;
 
 use clap::ArgGroup;
+use clap::builder::Str;
 use crossterm::style::Stylize;
+use json::object::Object;
 use crate::lib::aurr_core::load_json;
+use crate::lib::new_tools::AurrObject;
 //Imports:
 use lib::aurr_core::AurrCore;
 use lib::template::*;
@@ -111,7 +114,7 @@ struct Cli{
     #[arg(long, default_value = "azure")]
     csm:String,
 
-    #[arg(long, default_value = "data/templates/tools.json")]
+    #[arg(long, default_value = "data/templates/tools.json", env)]
     tools:String,
 
     #[arg(long, default_value = "data/templates/case_templates/")]
@@ -467,6 +470,11 @@ impl Cli{
         Ok(tools)
     }
     
+    fn load_aurrobjects(&self) -> Result<HashMap<String,AurrObject>, Box<dyn std::error::Error>>{
+        let objects = AurrObject::load_from_json(&self.tools).expect("Could not load tools correctly - check if everything is OK >:)");
+        Ok(objects)
+    }
+
     /// Function to load a set of tools
     fn print_tools(&self,filter: Option<String>, fullinfo:bool) -> Result<(), Box<dyn std::error::Error>>{
 
@@ -673,7 +681,7 @@ impl Cli{
 
             RunObject::Case { path, name } => {
 
-                let mut tools = self.load_tools()?;
+                let mut tools:HashMap<String,AurrObject> = self.load_aurrobjects().unwrap();
 
                 let case = match path{
                     Some(p) => CaseTemplate::load_from_json(&p)?,
@@ -685,7 +693,7 @@ impl Cli{
                     }
                 };
 
-                match aurr.tools_push_execute(&mut tools, case.clone(), &aurr.config, timeout).await{
+                match aurr.run_case(&mut tools, case.clone(), &aurr.config, timeout).await{
                     Ok(s) => {
                         info!("Run the following oneliner <Timeout UTC+{}> on the target system:",timeout );
                         println!("\t<{}>",s.blue());
@@ -693,6 +701,7 @@ impl Cli{
                     },
                     Err(e) => Err(format!("Could not run case: {} due to: {}",case.name, e.to_string()).into())
                 }
+
             },
 
             RunObject::Task { path, name , task_name, hostname} => {

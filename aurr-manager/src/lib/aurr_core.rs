@@ -1,5 +1,5 @@
 use crate::lib::{
-    azure::AzureStorageMgmt, cloud_storage_managers::{CloudResource, CloudServiceManager, CloudServiceManagerTrait, CarrierTypes}, template::CaseTemplate, tools::{MandatorySteps, Tool, ToolConfig,ToolSupportObject}};
+    azure::AzureStorageMgmt, cloud_storage_managers::{CarrierTypes, CloudResource, CloudServiceManager, CloudServiceManagerTrait}, new_tools::{AurrObject, AurrObjectConfig}, template::CaseTemplate, tools::{MandatorySteps, Tool, ToolConfig,ToolSupportObject}};
 
 use clap::builder::Str;
 use colored::{self, Colorize};
@@ -27,7 +27,18 @@ pub trait HasName {
 pub enum LocalResource {
     Text(String),
     Entry(DirEntry),
-    Tool(Tool)
+    Tool(Tool),
+    AurrObject(AurrObject)
+}
+
+impl LocalResource {
+    pub fn get_base_name(&self) -> String{
+
+        match self{
+            LocalResource::AurrObject(ao) => ao.local_path.replace("\\", "/").split("/").last().unwrap().to_string(),
+            _ => self.get_name()
+        }
+    }
 }
 
 
@@ -124,23 +135,6 @@ impl OperatingSystem{
 
 
 ///
-/// A function to provide a default download option for a target shell
-/// It is important that if a download option is provided, this needs to be installed via "mandatory_steps"
-/// 
-pub fn get_download_template(shell:&str) -> Option<String>{
-    match shell.to_lowercase().as_str() {
-        "powershell" => Some("POWERSHELL_DOWNLOAD_CMD".to_string()),
-        "bash" => Some("BASH_DOWNLOAD_CMD".to_string()),
-        &_ => {
-            error!("Provided shell option is not supported: {}\n To add support do the following: 1. Add a variable in config. \n2. Update the match statement in aurr_core::get_download_template",shell);
-            None
-        }
-        
-    }
-
-}
-
-///
 /// A struct to handle all the interactions between a vector of standalone cmdlines to a shell oneliner.
 /// 
 pub struct ShellParser{
@@ -189,7 +183,8 @@ impl GetName for LocalResource{
                                                 .last()
                                                 .unwrap()
                                                 .to_string(),
-            LocalResource::Tool(t) => t.name.clone()
+            LocalResource::Tool(t) => t.name.clone(),
+            LocalResource::AurrObject(ao) => ao.name.to_string()
         }
     }
 }
@@ -490,6 +485,84 @@ impl AurrCore{
         }
         Ok(urls)
     }
+
+    /// New function to handle NEW_TOOLS
+    /// 
+    pub async fn run_case(&self, tools:&mut HashMap<String,AurrObject>,case_template:CaseTemplate, config:&Config, timeout:u8) -> Result<String, Box<dyn std::error::Error>>{
+
+
+        info!("Running \"run_case\" for case template: {}", case_template.name);
+
+        //Fetching and converting the OS for the given task
+        let os = OperatingSystem::from_str(&case_template.task_template.os).unwrap();
+
+        //Initiating a vector with the setup steps.
+        let mut cmds:Vec<String> = os.get_setup(&config);
+
+
+        // Here we should run all the processing, cloudification and generating the cmdline to run the tool. 
+
+        //Fetching the Cloud root storage for a specific case. 
+        let case_container = case_template.name().to_string().to_ascii_lowercase();
+
+        //Checking if Name is valid
+        if !case_container.chars().all(|c| c.is_ascii_alphabetic()){
+                    error!("CaseTemplate.Name needs to be ascii_alphanumeric -> Azure Cloud does not support container names outside of this bound.");
+                    return Err("Fix case template name plz".into())
+                }
+
+        // For all the different tasks in the task template
+        for (_task,ss) in case_template.task_template.tasks().iter(){
+
+            let sub_tasks = match ss.as_ref(){
+                Some(t) => t,
+                None => continue
+            };
+
+            //Fetching the tool
+            for (tool_name, call_options) in sub_tasks.iter(){
+
+                let tool = match tools.get_mut(tool_name){
+                    Some(t) => t,
+                    None => return Err(format!("Tool: {} Does not exist in the tool index",tool_name).into())
+                };
+
+                //Producing the tools config. 
+                let mut tool_config = AurrObjectConfig::from_config_by_tags(&config, vec![&tool.config_tag,"CLOUD","AZURE","LOCAL"]).unwrap();
+
+                // Adding the upload container to the cloud default upload location
+                tool_config.add("CLOUD_DEFAULT_UPLOAD_LOCATION".to_string(), case_container.clone());
+
+                let mut a = tool.process_all_tasks_cloudify(self.get_mgmr(), &mut tool_config).await?;
+
+                cmds.append(&mut a);
+
+                // Extending the cmds with the call option for a traget tool.
+                for t in call_options.iter(){
+                    let new_cmd = tool.get_cmdline(&t, &tool_config);
+                    cmds.extend(tool.get_cmdline(&t, &tool_config));
+                }
+            }
+        }
+
+            
+
+
+
+        // Adding the cleanup steps for the shell
+        cmds.extend(os.cleanup(&config));
+
+        let sp = ShellParser::new(case_template.task_template.shell, cmds);
+        
+        match sp.get_oneliner(){
+            Some(ol) => Ok(ol),
+            None => {
+                Err("Could not produce oneliner  :(".into())
+            }
+        }
+
+    }
+
 
     ///
     /// Function to take a set of tasks in the context of a case template 

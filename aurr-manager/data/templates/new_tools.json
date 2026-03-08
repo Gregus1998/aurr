@@ -1,0 +1,88 @@
+[
+    {
+        "name" : "Velociraptor-Windows-AMD64",
+        "object_type" : "Tool",
+        "task" : "1 Memory",
+        "author" : "Jonas",
+        "metadata": "Some metadata that will be used later",
+        "config_tag" : "VELO",
+        "local_path" : "/home/cyfjonass/aurr/aurr-manager/data/tools/velociraptor/velociraptor-v0.75.6-windows-amd64/Velociraptor.exe",
+        "target_shell" : "Powershell",
+        "task_list": {
+            "GenEnvVar": ["VELO_UPLOAD_URL"],     
+            "GenConfVar": ["VELO_UPLOAD_URL"],
+            "Build" : ["/home/cyfjonass/aurr/aurr-manager/data/tools/velociraptor/velociraptor-v0.75.6-windows-amd64/buildfile.sh"],
+            "ReqObj": ["/home/cyfjonass/aurr/aurr-manager/data/tools/velociraptor/velociraptor-v0.75.6-windows-amd64/Collector_velociraptor-collector", "/home/cyfjonass/aurr/aurr-manager/data/templates/key.pub"]
+        },
+
+        "call": {
+            "Default" : ["./Velociraptor.exe","--","--embedded_config", "Collector_velociraptor-collector"]
+        }
+    },
+
+    {
+        "name" : "Velociraptor-Linux-AMD64",
+        "object_type" : "Tool",
+        "task" : "1 Memory",
+        "author" : "Jonas",
+        "metadata": "Some metadata that will be used later",
+        "config_tag" : "VELO",
+        "local_path" : "/home/cyfjonass/aurr/aurr-manager/data/tools/velociraptor/velociraptor-v0.75.6-linux-amd64/Velociraptor",
+        "target_shell" : "Bash",
+        "task_list": {
+            "GenEnvVar": ["VELO_UPLOAD_URL"],     
+            "GenConfVar": ["VELO_UPLOAD_URL"],
+            "Build" : ["/home/cyfjonass/aurr/aurr-manager/data/tools/velociraptor/velociraptor-v0.75.6-linux-amd64/buildfile.sh"],
+            "ReqObj": ["/home/cyfjonass/aurr/aurr-manager/data/tools/velociraptor/velociraptor-v0.75.6-linux-amd64/Collector_velociraptor-collector"],
+            "AtTarget" : ["chmod +x ./Velociraptor"]
+        },
+
+        "call": {
+            "Default" : ["chmod +x ./Velociraptor", "./Velociraptor","--","--embedded_config", "Collector_velociraptor-collector"]
+        }
+    },
+
+    {
+        "name" : "Surge-Collect-Windows",
+        "object_type" : "Tool",
+        "task" : "1 memory",
+        "author" : "Jonas Sørensen",
+        "config_tag" : "SURGE",
+        "metadata": "Metadata for SURGE",
+        "target_shell" : "Powershell",
+        "local_path" : "/home/cyfjonass/aurr/aurr-manager/data/tools/surge-collect-pro-25.12.16/bin/windows/surge-collect.exe",
+        "task_list": {
+            "GenEnvVar": ["SURGE_UPLOAD_TOKEN"],     
+            "GenConfVar": ["SURGE_UPLOAD_TOKEN"]
+        },
+        "call" : {
+            "Default_Windows_Upload_Azure" : [".\\surge-collect.exe","$SURGE_COLLECT_PASSWORD","AZBLOB://$AZURE_ACCOUNT_STORAGE_NAME/$CLOUD_DEFAULT_UPLOAD_LOCATION","--azblob-sas-token='$SURGE_UPLOAD_TOKEN'"],
+            "Default_Windows_Test" : [".\\surge-collect.exe", "$SURGE_COLLECT_PASSWORD", "--help"],
+            "Windows_Fetch_OneFile_Upload_Azure" : [".\\surge-collect.exe","SURGE_COLLECT_PASSWORD", "--no-memory", "--file='C:\\Users\\Jonassorensen\\Downloads\\superinfo'", "AZBLOB://AZURE_ACCOUNT_STORAGE_NAME/CLOUD_DEFAULT_UPLOAD_LOCATION","--azblob-sas-token='SURGE_UPLOAD-TOKEN'"] 
+        }
+    },
+
+    {
+        "name" : "Template",
+        "object_type" : "Tool",
+        "task" : "1 Memory",
+        "author" : "Jonas",
+        "metadata": "Some metadata that will be used later",
+        "config_tag" : "VELO",
+        "local_path" : "/home/cyfjonass/aurr/aurr-manager/data/tools/velociraptor/velociraptor-v0.75.6-windows-amd64.exe",
+        "target_shell" : "Powershell",
+        "task_list": {
+            "GenEnvVar": ["VELO_UPLOAD_URL"],     
+            "GenConfVar": ["VELO_UPLOAD_URL"],
+            "Build": [""],
+            "Alter": [""],  
+            "ReqObj": [""],
+            "AtTarget": []
+        },
+
+        "call": {
+            "Default" : ["Some", "Default", "CMDLINE=$VARIABLE "]
+        }
+    }
+        
+]

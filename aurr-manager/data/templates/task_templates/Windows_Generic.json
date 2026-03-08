@@ -7,9 +7,6 @@
         "1 memory" : {
             "Surge-Collect-Windows" : ["Default_Windows_Upload_Azure"]
         },
-        "2 triage" : {
-            "Kape" : ["Default_Windows_Upload_Azure"]
-	    },
         "3 disk" : null,
         "4 other" : null
     }

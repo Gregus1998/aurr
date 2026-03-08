@@ -118,8 +118,6 @@ impl ToolConfig {
                 Ok(())
             }
         }
-
-
     }
 
     pub fn get<T>(&self ,key:&str) -> Option<T>
@@ -134,8 +132,6 @@ impl ToolConfig {
             }}
                 
         }
-
-        
     }
 }
 
