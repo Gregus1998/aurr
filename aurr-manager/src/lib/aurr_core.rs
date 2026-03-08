@@ -1,5 +1,5 @@
 use crate::lib::{
-    azure::AzureStorageMgmt, cloud_storage_managers::{CarrierTypes, CloudResource, CloudServiceManager, CloudServiceManagerTrait}, new_tools::{AurrObject, AurrObjectConfig}, template::CaseTemplate, tools::{MandatorySteps, Tool, ToolConfig,ToolSupportObject}};
+    azure::AzureStorageMgmt, cloud_storage_managers::{CarrierTypes, CloudResource, CloudServiceManager, CloudServiceManagerTrait}, new_tools::{AurrObject, AurrObjectConfig}, template::CaseTemplate};
 
 use clap::builder::Str;
 use colored::{self, Colorize};
@@ -27,7 +27,6 @@ pub trait HasName {
 pub enum LocalResource {
     Text(String),
     Entry(DirEntry),
-    Tool(Tool),
     AurrObject(AurrObject)
 }
 
@@ -48,6 +47,17 @@ impl LocalResource {
 pub enum Shell {
     Powershell,
     Bash,
+}
+
+impl Display for Shell{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+
+        match self{
+            Shell::Bash => f.write_str("Bash"),
+            Shell::Powershell => f.write_str("Powershell")
+        }
+        
+    }
 }
 
 impl FromStr for Shell {
@@ -183,7 +193,6 @@ impl GetName for LocalResource{
                                                 .last()
                                                 .unwrap()
                                                 .to_string(),
-            LocalResource::Tool(t) => t.name.clone(),
             LocalResource::AurrObject(ao) => ao.name.to_string()
         }
     }
@@ -298,12 +307,8 @@ T: Debug
 
     for (key,val) in map.iter(){
 
-        s.push_str("\n\t");
-        s.push_str(format!("{:<12}:  {:?}",key, val)
-            .replace("\\n\\t", "")
-            .replace("\\\"", "")
-            .replace("[\"\"]", "None")
-            .replace("\"", "")
+        s.push_str(format!(
+"{:<5}:  {:?}",key, val)
             .as_str());
     };
 
@@ -432,19 +437,6 @@ impl AurrCore{
     }
 
     ///
-    /// Function to upload a tool to a specific cloud
-    /// If a container is passed, the tool will be uploaded to this location
-    /// 
-    pub async fn upload_tool(&self, tool:Tool, container:Option<&str>) -> Result<CloudResource, Box<dyn std::error::Error>>{
-
-        match container{
-            Some(s) => self.get_mgmr().upload(LocalResource::Tool(tool), s).await,
-            None => self.get_mgmr().upload(LocalResource::Tool(tool), "tools").await
-        }
-        
-    }
-
-    ///
     /// Function to download a cloud resource 
     /// 
     pub async fn download_cloud_resource(&self, cloud_resource_path:&str, download_dir:&str) -> Result<(), Box<dyn std::error::Error>>{
@@ -457,7 +449,7 @@ impl AurrCore{
 
         Ok(())
     }
-
+/*
     ///
     /// Function to cloudify a vector of tools. 
     /// This will push a set of tools to the cloud and return a set of downloadable urls.
@@ -484,7 +476,7 @@ impl AurrCore{
             urls.insert(name.clone(), s);
         }
         Ok(urls)
-    }
+    }*/
 
     /// New function to handle NEW_TOOLS
     /// 
@@ -561,271 +553,6 @@ impl AurrCore{
             }
         }
 
-    }
-
-
-    ///
-    /// Function to take a set of tasks in the context of a case template 
-    ///     1. Process the mandatory steps. 
-    ///     1. Cloudify all the relevant tools
-    ///     2. Produce a script to do the following:
-    ///         a. Setup the enviroment on a remote system
-    ///         b. Download the tools from the cloud
-    ///         c. Runtime process required steps and additional resources
-    ///         d. Execute the tools based on a the provided config
-    ///         e. Cleanup 
-    ///
-    /// 
-    pub async fn tools_push_execute(&self, tools:&mut HashMap<String,Tool>,case_template:CaseTemplate, config:&Config, timeout:u8) -> Result<String, Box<dyn std::error::Error>>{
-
-        info!("Running <Tool Push Execute> for template: {}", case_template.name);
-
-        //Fetching and converting the OS for the given task
-        let os = OperatingSystem::from_str(&case_template.task_template.os).unwrap();
-
-        //Initiating a vector with the setup steps.
-        let mut cmds:Vec<String> = os.get_setup(&config);
-
-        //Fetching the Cloud root storage for a specific case. 
-        let case_container = case_template.name().to_string().to_ascii_lowercase();
-
-        //Checking if Name is valid
-        if !case_container.chars().all(|c| c.is_ascii_alphabetic()){
-                    error!("CaseTemplate.Name needs to be ascii_alphanumeric -> Azure Cloud does not support container names outside of this bound.");
-                    return Err("Fix case template name plz".into())
-                }
-
-        //Not a very beutiful solution here, But it works. Another argument to rework everything >:()
-        for (_task,ss) in case_template.task_template.tasks().iter(){
-
-            let sub_tasks = match ss.as_ref(){
-                Some(t) => t,
-                None => continue
-            };
-
-            //Fetching the tool
-            for tool_name in sub_tasks.keys(){
-
-                let tool = match tools.get(tool_name){
-                    Some(t) => t,
-                    None => return Err(format!("Tool: {} Does not exist in the tool index",tool_name).into())
-                };
-
-                //Producing the tools config. 
-                let mut tool_config = ToolConfig::from_config_by_tags(&config, vec![&tool.config_tag,"CLOUD","AZURE"]).unwrap();
-
-                //Chanign the upload container to a case specific location.AZURE_UPLOAD_CONTAINER_NAME
-                tool_config.edit_entry("CLOUD_DEFAULT_UPLOAD_LOCATION".to_string(), case_container.clone()).unwrap();
-                tool_config.edit_entry("CLOUD_TOKEN_UPLOAD_TIMEOUT".to_string(), timeout.to_string()).unwrap();
-
-
-                self.process_mandatory_generate(&mut tool_config, tool).await.unwrap();
-
-                let additional_downloads = self.process_mandatory_require(&mut tool_config, tool, case_template.task_template.shell.get_download_template()?).await.unwrap();
-
-                if !additional_downloads.is_empty(){
-                    for u in additional_downloads.iter(){
-                        cmds.push(u.to_string())
-                    }
-                }
-
-
-                //Cloudify and push the tool on the cmds vectord
-                let url = tool.cloudify(&self.get_mgmr(),&case_container, timeout).await.unwrap();
-
-                // Fetching the download template for the shell. 
-                let down_template = case_template.task_template.shell.get_download_template()?;
-                
-                //Since this is running in a linux enviroment, then path of the local file will be used to save the file to a given system.
-                let remote_download_filename = tool.localpath.split("/").last().unwrap();
-                
-                cmds.push(down_template
-                    .replace("<URL>", &url)
-                    .replace("<REMOTE_TOOL_FILE_NAME>", remote_download_filename));
-
-                cmds.extend(case_template.build_task(tool, &tool_config));
-            }
-        }
-
-        cmds.extend(os.cleanup(&config));
-
-        let sp = ShellParser::new(case_template.task_template.shell, cmds);
-        
-        match sp.get_oneliner(){
-            Some(ol) => Ok(ol),
-            None => {
-                Err("Could not produce oneliner  :(".into())
-            }
-        }
-    }
-
-    ///
-    /// Function to handle all the different processing steps for config variable generation steps. 
-    /// This finctuon should take any parameter input and produce a entry in the tool config. 
-    /// Parameter format: "<config_tag>_<somevar1>_<somevar2>_<somevar_n>" 
-    ///     Example: SURGE_SAS-UPLOAD-TOKEN -> This will produce a enty in the config: 'SURGE_SAS-UPLOAD-TOKEN' -> 'Some generated SAS-token'
-    /// 
-    /// For each usecase of this there need to be added a support in in this function.
-    /// This is solved with a chain of if else statements 
-    /// 
-    pub async fn process_mandatory_generate(&self, tool_config:&mut ToolConfig, tool:&Tool) -> Result<(), Box<dyn std::error::Error>>{
-
-        //Ekstracting the generation steps. If this is empty, the execution will just continue
-        let generation_steps = match tool.get_mandatory_step_by_type(MandatorySteps::Generate){
-            Some(s) => s,
-            None => return Ok(())
-        };
-
-        for parameter in generation_steps.iter(){
-            let con = match tool_config.get::<String>("CLOUD_DEFAULT_UPLOAD_LOCATION"){
-                    Some(s) => s,
-                    None => uuid::Uuid::new_v4().to_string()
-                };
-
-            let cr = match CloudResource::from_path(&con, &self.get_mgmr().get_type()){
-                    Ok(a) => a,
-                    Err(_) => return Err("Need to implment CloudResource::from_path for the specified CloudResourceManager".into())
-            };
-
-            let token_timeout = tool_config.get::<u8>("CLOUD_TOKEN_UPLOAD_TIMEOUT").unwrap();
-
-            if parameter.contains("UPLOAD-TOKEN"){
-                //Will check the config for SURGE_UPLOAD
-                let upload_token_key = format!("{}_UPLOAD-TOKEN",tool.config_tag);
-
-
-                match self.get_mgmr().grant_upload_token(
-                    cr,
-                    token_timeout
-                ).await{
-                    Ok(token) => tool_config.add(upload_token_key, token),
-                    Err(e) => return Err(e)
-                };
-
-            } else if parameter.contains("UPLOAD-URI"){
-
-                //Defining the entry where the URI will be stored
-                let new_config_entry = format!("{}_UPLOAD-URI",tool.config_tag);
-
-        
-                match self.get_mgmr().grant_upload_url(
-                    cr,
-                    token_timeout
-                     )
-                     .await{
-                        Ok(token) => tool_config.add(new_config_entry, token),
-                        Err(e) => return Err(e)
-                     }
-            } else {
-                return Err("The provided parameter is not supported".into())
-            }
-        
-        }
-
-        Ok(())        
-    }
-
-
-    ///
-    /// A function to process the mandatory step: require for a given tool with config.
-    /// A tool can require some other file or resource at the target. That can be stated via the MandatoryStep::required Structure.
-    /// All requirements should be simple files or objects. 
-    /// Aurr will make sure that whatever this file is, it will be present at the target. 
-    /// Reuired will have some of the same properties as tools. 
-    /// There will be some support to alter the content of the object and generate new content. 
-    /// 
-    /// The config will be used to pass a path that points to whatever file that stores the required objects. 
-    /// The output of this function will be a vector of URL's where a given file can be downloaded from.
-    /// 
-    pub async fn process_mandatory_require(&self, tool_config:&mut ToolConfig, tool:&Tool, download_template:String) -> Result<Vec<String>, Box<dyn std::error::Error>>{
-
-        let mut r:Vec<String> = Vec::new();
-
-        //Fetching all the required steps. 
-        let req = match tool.get_mandatory_step_by_type(MandatorySteps::Require){
-            Some(s) => s,
-            None => return Ok(r)
-        };
-
-        // The name of the key where the list of possible requred objects are stored
-        let key = format!("{}_MANDATORY_REQUIRE_PATH",tool.config_tag);
-
-        let p = tool_config.get::<String>(&key).unwrap();
-
-        let all_req:HashMap<String, ToolSupportObject> = ToolSupportObject::load_from_json(&p)?;
-
-        for names in req.iter(){
-
-            let a = match all_req.get(names){
-                None => return Err("The desired requirement is not present in the provided requrement list".into()),
-                Some(s) => s
-            };
-
-            let url = a.process_cloudify(&self, tool_config).await?;
-
-            r.push(
-                download_template.replace("<URL>", &url)
-                .replace("<REMOTE_TOOL_FILE_NAME>", names)
-            )
-        }
-
-        Ok(r)
-    }
-
-    /// 
-    /// A function to handle all types of generation. The idea here is that you can pass a random string and this function will generate whatever value that is needed.
-    /// Need to establish some rules for what we should be able to generate. But initially we need to be able to generate:
-    /// - upload token
-    /// - Download token
-    /// - Upload URI
-    /// - Download URI
-    /// 
-    /// Should be able to add support for other stuff later.  
-    pub async fn handle_generation(&self, config:&ToolConfig, values:Vec<String>) -> Result<HashMap<String,String>,Box<dyn std::error::Error>>{
-
-        let mut map:HashMap<String,String> = HashMap::new();
-
-        for v in values.iter(){
-
-            if v.ends_with("UPLOAD_TOKEN"){
-
-                let con = match config.get::<String>("CLOUD_DEFAULT_UPLOAD_LOCATION"){
-                    Some(s) => s,
-                    None => uuid::Uuid::new_v4().to_string()
-                };
-
-                let cr = match CloudResource::from_path(&con, &self.get_mgmr().get_type()){
-                        Ok(a) => a,
-                        Err(_) => return Err("Need to implment CloudResource::from_path for the specified CloudResourceManager".into())
-                };
-                let token_timeout = config.get::<u8>("CLOUD_TOKEN_UPLOAD_TIMEOUT").unwrap();
-                let token = self.get_mgmr().grant_upload_token(cr, token_timeout).await?;
-
-                map.insert(v.clone(), token);
-
-            }else if v.ends_with("UPLOAD_URL") {
-                let con = match config.get::<String>("CLOUD_DEFAULT_UPLOAD_LOCATION"){
-                    Some(s) => s,
-                    None => uuid::Uuid::new_v4().to_string()
-                };
-
-                let cr = match CloudResource::from_path(&con, &self.get_mgmr().get_type()){
-                        Ok(a) => a,
-                        Err(_) => return Err("Need to implment CloudResource::from_path for the specified CloudResourceManager".into())
-                };
-                let token_timeout = config.get::<u8>("CLOUD_TOKEN_UPLOAD_TIMEOUT").unwrap();
-                let url = self.get_mgmr().grant_upload_url(cr, token_timeout).await?;
-
-                map.insert(v.clone(), url);
-
-            
-            }else if v.ends_with("DOWNLOAD_URL"){
-                todo!()
-            }else if v.ends_with("DOWNLOAD_TOKEN") {
-                todo!()
-            }
-        }
-        Ok(map)
     }
 
 }

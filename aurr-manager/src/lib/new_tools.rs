@@ -1,6 +1,6 @@
 //Import from local crate
 use crate::{error, impl_has_name, info, lib::{aurr_core::{
-        AurrCore, HasName, Shell, load_manyjson_hashmap_by_name, print_map}, 
+        AurrCore, HasName, Shell, load_manyjson_hashmap_by_name, print_btmap, print_map}, 
     cloud_storage_managers::{CloudServiceManager,CloudServiceManagerTrait}}
 };
 use regex::Regex;
@@ -58,6 +58,15 @@ impl FromStr for AurrObjectTaskList {
 pub enum AurrObjectType{
     Tool,
     File
+}
+
+impl Display for AurrObjectType{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self{
+            AurrObjectType::File => f.write_str("File"),
+            AurrObjectType::Tool => f.write_str("Tool")
+        }
+    }
 }
 
 ///
@@ -170,9 +179,81 @@ impl AurrObject {
     pub fn ls(&self, full:bool) -> String{
         match full{
             true => {
-                format!("")
+                format!(
+"
+        {:<15} {}
+        {:<15} {}
+        {:<15} {}
+        {:<15} {}
+        {:<15} {}
+        {:<15} {}
+        {:<15} {}
+        {:<15} {}
+        {:<15} {}
+        {:<15} {}
+",
+"name:", self.name,
+"object_type:", self.object_type,
+"author:", self.author,
+"config_tag:", self.config_tag,
+"target_shell:", self.target_shell,
+"metadata:", self.metadata,
+"local_path:", self.local_path,
+"exists:", match std::fs::File::open(self.local_path.clone()) {
+    Ok(_) => "[TRUE]".green(),
+    Err(_) => "[FALSE]".red(),
+},
+"task_list:" , {
+    let mut s = String::new();
+
+    for (i,v) in self.task_list.iter(){
+        s.push_str(&format!(
+"
+            {:<50}: {}", i, v.iter().map(|s| format!("{:?}",s)).collect::<Vec<_>>().join(", ")
+        ));
+    }
+    s
+},
+"call:", {
+    let mut s = String::new();
+
+    for (i,v) in self.call.iter(){
+        s.push_str(&format!(
+"
+            {} {}", i, v.iter().map(|s| format!("{:?}",s)).collect::<Vec<_>>().join(", ")
+        ));
+    }
+    s
+}
+
+
+)
             },
-            false => {format!("")}
+
+            false => {
+                format!(
+"
+        {:<15} {}
+        {:<15} {}
+        {:<15} {}
+        {:<15} {}
+        {:<15} {}
+        {:<15} {}
+        {:<15} {}
+        {:<15} {}
+",
+"name:", self.name,
+"object_type:", self.object_type,
+"author:", self.author,
+"config_tag:", self.config_tag,
+"target_shell:", self.target_shell,
+"metadata:", self.metadata,
+"local_path:", self.local_path,
+"exists:", match std::fs::File::open(self.local_path.clone()) {
+    Ok(_) => "[TRUE]".green(),
+    Err(_) => "[FALSE]".red(),
+},)
+                }
         }
     }
 

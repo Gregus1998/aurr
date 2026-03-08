@@ -12,7 +12,6 @@ use lib::aurr_core::AurrCore;
 use lib::template::*;
 use lib::logging::Logger;
 use config::{Config, File, FileFormat};
-use lib::tools::{Tool};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -392,29 +391,6 @@ impl Cli{
         }
     }
 
-    fn get_tool(&self, local_resource:LocalResource) -> Option<Tool>{
-
-        match local_resource {
-
-            LocalResource::File { path } => {
-
-                
-                match Tool::new_from_path(&path){
-                        Ok(t) => Some(t.clone()),
-                        Err(_) => None
-                }
-            },
-            LocalResource::Tool { name } => {
-
-                //loading all the tools
-                let tools = self.load_tools().unwrap();
-                
-                tools.get(&name).cloned()
-            },
-            LocalResource::Folder => None
-        }
-    }
-
     /// Function to print a config on a nice format. (Not very nice tho :())
     fn print_config(config:&Option<Config>){
 
@@ -465,8 +441,8 @@ impl Cli{
 
     /// Function to load the tools
     /// Default path is ./data/template/tools.json -> Can be changed via the argument --tools
-    fn load_tools(&self) -> Result<HashMap<String,Tool>, Box<dyn std::error::Error>>{
-        let tools = Tool::load_from_json(&self.tools).expect("Could not load tools - Check if tools file exist!");
+    fn load_tools(&self) -> Result<HashMap<String,AurrObject>, Box<dyn std::error::Error>>{
+        let tools = AurrObject::load_from_json(&self.tools).expect("Could not load tools - Check if tools file exist!");
         Ok(tools)
     }
     
@@ -487,7 +463,7 @@ impl Cli{
 
         for tool in tools.values(){
 
-            let print = tool.list_tool(fullinfo);
+            let print = tool.ls(fullinfo);
 
             if print.contains(&f){
                 println!("{}",print)
@@ -589,7 +565,7 @@ impl Cli{
     /// Function to upload a local resource 
     async fn upload_local_resource(&self, aurr:&AurrCore, local:LocalResource, remote:&str)  -> Result<(), Box<dyn std::error::Error>>{
 
-        let atool:Tool = match local {
+        let atool:AurrObject = match local {
 
             LocalResource::File { path } => {
 
@@ -601,14 +577,16 @@ impl Cli{
                 io::stdout().flush().unwrap();
                 std::io::stdin().read_line(&mut s).unwrap();
 
-                if s.eq("yes"){
-                    match Tool::new_from_path(&path){
+                if s.starts_with("yes"){
+
+                    match AurrObject::new_from_path(&path, lib::aurr_core::Shell::Bash){
                         Ok(t) => t.clone(),
                         Err(e) => return Err(format!("Could not toolify path: {}",e.to_string()).into())
                     }
 
                 }else{
-                    return Err("Upload aborted".into())
+                    info!("Upload aborted - Exiting");
+                    exit(1)
                 }
 
             },
@@ -629,7 +607,7 @@ impl Cli{
 
         };
 
-        match aurr.upload_tool(atool.clone(), Some(remote)).await{
+        match aurr.get_mgmr().upload(lib::aurr_core::LocalResource::AurrObject(atool.clone()), remote).await{
                     Ok(cr) => info!("Uploaded: <{}> to <{}> <{}> <{}>", atool.name,aurr.get_mgmr().get_name(), aurr.get_mgmr().get_type(), cr.get_info().unwrap()),
                     Err(e) => {
                         error!("Could not upload tool due to {}",e.to_string());
@@ -651,17 +629,50 @@ impl Cli{
 
     async fn cloudify_local_resource(&self, aurr:&AurrCore, local:LocalResource, remote:&str, timeout:u8) -> Result<(), Box<dyn std::error::Error>>{
         
-        let tool = match self.get_tool(local.clone()){
-            Some(t) => t,
-            None => return Err(format!("The provided tool: {:?} is not a valid path or in the tool index",local).into())
+        let atool:AurrObject = match local {
+
+            LocalResource::File { path } => {
+
+                let mut s = String::new();
+
+                println!("Are you sure you want to upload the following:\n{}", path.clone().red());
+
+                print!("Answer(yes/no): ");
+                io::stdout().flush().unwrap();
+                std::io::stdin().read_line(&mut s).unwrap();
+
+                if s.starts_with("yes"){
+                    match AurrObject::new_from_path(&path, lib::aurr_core::Shell::Bash){
+                        Ok(t) => t.clone(),
+                        Err(e) => return Err(format!("Could not toolify path: {}",e.to_string()).into())
+                    }
+
+                }else{
+                    info!("Cloudification aborted - Exiting program");
+                    exit(1)
+                }
+
+            },
+
+            LocalResource::Tool { name } => {
+
+                //loading all the tools
+                let tools = self.load_tools().unwrap();
+                //Extracting the tool
+                let t = match tools.get(&name){
+                    Some(a) => a,
+                    None => return Err("Provided tool name does not exist in the tool index".into())
+                };
+                t.clone()
+            },
+
+            LocalResource::Folder => todo!()
+
         };
 
-        let url = tool.cloudify(aurr.get_mgmr(), &remote.to_string(), timeout).await?;
+        let url = atool.cloudify(&aurr.get_mgmr(), remote, timeout).await?;
 
-        println!("{}",url);
-
-
-
+        info!("Cloudification was successsful - Timeout:<UTC+{}H> - Download via: \n\t<{}> ",timeout,url);
         Ok(())
     }
 
@@ -705,6 +716,7 @@ impl Cli{
             },
 
             RunObject::Task { path, name , task_name, hostname} => {
+                
                 let task:TaskTemplate = match path{
                     Some(p) => {
                         match load_json(&p){
@@ -724,7 +736,7 @@ impl Cli{
 
                 let mut tools = self.load_tools()?;
 
-                match aurr.tools_push_execute(&mut tools, case.clone(), &aurr.config, timeout).await{
+                match aurr.run_case(&mut tools, case.clone(), &aurr.config, timeout).await{
                     Ok(s) => {
                         info!("Run the following oneliner <Timeout UTC+{}> on the target system:",timeout );
                         println!("\t<{}>",s.blue());
@@ -759,10 +771,6 @@ impl Cli{
 
             _ => return Err("The supported permission string is not supported!".into())
         }
-
-
-
-
         Ok(())
     }
 

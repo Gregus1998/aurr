@@ -1,8 +1,8 @@
 
 {
     "name" : "Windows 11 MemoryDump Azure Cloud",
-    "os" : "Windows",
-    "shell" : "Powershell",
+    "os" : "Linux",
+    "shell" : "Bash",
     "tasks" : {
         "Default" : {
             "Velociraptor-Linux-AMD64" : ["Default"]

@@ -367,10 +367,6 @@ impl AzureStorageMgmt {
 
             },
 
-            LocalResource::Tool(tool) => {
-                self.upload_resource(&LocalResource::Text(tool.localpath.to_string()), blob_name, container , overwrite).await
-            },
-
             LocalResource::AurrObject(ao) => {
                 self.upload_resource(&LocalResource::Text(ao.local_path.to_string()), &ao.name, container, overwrite).await
             }
