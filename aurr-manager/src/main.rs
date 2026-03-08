@@ -92,7 +92,7 @@ impl <T> PrintResults <T> {
 
 #[derive(Parser)]
 #[command(name = "Aurr")]
-#[command(about = "Test Aurr clap cli")]
+#[command(about = "Aurr - A Yggdrasil Soil Project - Version: 1.1")]
 struct Cli{
 
 
@@ -432,7 +432,7 @@ impl Cli{
 |-~, -=-~ //-^-///-~. //-~-~/|| ,-~, //-~.// -~-~-=-~ //-^-// , |
 +---------------------------------------------------------------+    
 |    An Yggdrasil soil project                                  |
-|     Version 1.0                                               |
+|     Version 1.1                                               |
 |     By: Jonas Sørensen                                        |
 +---------------------------------------------------------------+
 ", "▄████▄ ██  ██ █████▄  █████▄".dark_green(),"██▄▄██ ██  ██ ██▄▄██▄ ██▄▄██▄ ".dark_green(), "██  ██ ▀████▀ ██   ██ ██   ██ ".dark_cyan())
