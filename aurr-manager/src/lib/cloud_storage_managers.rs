@@ -2,12 +2,11 @@ use std::error::Error;
 
 use azure_core::time;
 use config::Config;
-use tracing::info;
 
-use crate::{error, lib::{
+use crate::{debug, error, info, lib::{
     aurr_core::{GetName, LocalResource},
     azure::{AzureCloudResource, AzureStorageMgmt}
-}};
+}, warning};
 
 ///
 /// Just a enum to list all possible carriers / Cloud Managers.
@@ -132,7 +131,7 @@ impl CloudServiceManagerTrait for CloudServiceManager{
         match self{
             CloudServiceManager::Azure(asm) => Ok(
                 CloudResource::Azure(
-                    asm.upload_resource(&resource, &resource.get_base_name(),some_cloud_storage_path, true).await.unwrap()))
+                    asm.upload_resource(&resource, &resource.get_base_name(),some_cloud_storage_path, true).await?))
         }
     }
 
@@ -269,7 +268,8 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
         match self.check_connection().await{
             Ok(_) => Ok(true),
             Err(e) => {
-                error!("Connection Check to Azure Cloud Failed due to {}",e.to_string());
+                warning!("Connection Check to Azure Cloud Failed");
+                debug!("do I se this");
                 info!("Is the Azure Access Key present? Run switch <ls config> to verify. Account Key can be passed as env_var with: <export AURR_KEY=\"<some_account_key>\">");
                 Ok(false)
             }

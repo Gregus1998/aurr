@@ -1,5 +1,5 @@
 // Library to store all azure structs and functions. 
-use crate::{error, info, lib::{
+use crate::{error, info, warning, lib::{
     aurr_core::LocalResource}};
 
 use async_recursion::async_recursion;
@@ -203,7 +203,7 @@ impl AzureStorageMgmt {
             containers = match r{
                 Ok(con) => con.containers,
                 Err(e) => {
-                    return Err(format!("{}",e.into_inner().unwrap()).into());
+                    return Err(e.into());
                 }
             };
         }
@@ -245,6 +245,14 @@ impl AzureStorageMgmt {
 
         let container_client = self.bsc.container_client(container_name);
 
+        match self.check_connection().await{
+            Ok(_) => (),
+            Err(_) => {
+                warning!("Could not connect to the azure cloud.");
+                return Err("Connection error".into());
+            } 
+        }
+
         match container_client.exists().await{
             Ok(bool) => {
                 if !bool{
@@ -262,7 +270,9 @@ impl AzureStorageMgmt {
                 }
             },
             Err(e) => {
-                Err(e.into())
+                println!("{}",e.to_string());
+                error!("Failed check existance of container.");
+                Err("()".into())
             }
         }
             
@@ -361,7 +371,7 @@ impl AzureStorageMgmt {
                 let bc = self
                     .upload(container, blob_name, content, overwrite)
                     .await
-                    .unwrap();
+                    ?;
 
                 Ok(bc)
 

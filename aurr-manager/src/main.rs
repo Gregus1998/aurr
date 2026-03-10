@@ -512,7 +512,7 @@ impl Cli{
 
     async fn list_csm(&self, aurr:&AurrCore, filter:&Option<String>) -> Result<(), Box<dyn std::error::Error>>{
 
-        println!("{}",aurr.list_managers().await?);
+        println!("\n\t{}",aurr.list_managers().await?);
         Ok(())
     }
 
@@ -779,6 +779,9 @@ impl Cli{
 
 #[tokio::main]
 async fn main() {
-    Cli::init().await.expect("You did something wrong :(");
+    match Cli::init().await{
+        Ok(_) => println!("\nExecution of program went smoothly!\n\t Have a good day! >:)"),
+        Err(e) => error!("\"Bad Stuff\" Happend!\n\t-> {}",e.to_string())
+    };
 
 }
