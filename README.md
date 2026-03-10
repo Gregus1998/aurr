@@ -62,13 +62,13 @@ Config.toml is essential for the application to run correctly. This one needs to
 Case templates are Files(json) that is located under project_root/data/templates/case_template/. 
 
 The content can look something like this: 
-
+```
 {
     "name" : "Example_Case_Name",
     "hostname" : "Hostname", 
     "task_template" : "<Path/to/some/TaskTemplate.json>"
 }
-
+```
 CaseTemplates should be created again for each individual case. Because each case gets a dedicated CloudResource with dedicated tokens.  
 
 ### TaskTemplates:
@@ -76,7 +76,7 @@ CaseTemplates should be created again for each individual case. Because each cas
 TaskTemplates are files(json) that is located under project_root/data/templates/task_templates. 
 
 The content of a TaskTemplate can look something like this: 
-
+```
 {
     "name" : "Windows 11 MemoryDump Azure Cloud",
     "os" : "Windows",
@@ -90,14 +90,14 @@ The content of a TaskTemplate can look something like this:
         "4 other" : null
     }
 }
-
+```
 TaskTemplates are constructed to be reused accross many different CaseTemplates. You will need to specify metadata about a given task. This will dictate the format of the final output. Each TaskTemplate has a dict of tasks. The different tasks are executed based on AlphaNumerical - order. This means that; "1 Memory" will be executed before "2 triage".  "1 Memory" will also be executed before "A before memory task". 
 Each task should point to a tool in the provided tools config with a set of "calls". This tool will be executed on the system with the provided call options in the provided sequence. This means that if you have the task: 
-
+```
 1 memory: {
     "Surge-Collect-Windows" : ["Default_Windows_Upload_Azure","NotDefault_Windows_Upload_Auze"]
     }
-
+```
 Then "Surge-Collect-Windows" will be run on the system twice with the two configurations specified in "Default_Windows_Upload_Azure" and "NotDefault_Windows_Upload_Auze"
 
 ### Tools-Config
@@ -105,49 +105,30 @@ The tools config file(json) is by default located at "project_root/data/template
 The tools config file(json) is by default located at "project_root/data/templates/tools.json". This file conists of a list of different tools. For each tools there should be some metadata and call options. A tool can be provided with a set of different "task" that can be used to automate tasks during the whole execution. 
 
 An element in the toolconfig can look something like this: 
-
+```
 {
-        "name" : "Velociraptor-Windows-AMD64",
-        "object_type" : "Tool",
-        "task" : "1 Memory",
-        "author" : "Jonas",
-        "metadata": "Some metadata that will be used later",
-        "config_tag" : "VELO",
-        "local_path" : "/home/cyfjonass/aurr/aurr-manager/data/tools/velociraptor/velociraptor-v0.75.6-windows-amd64/Velociraptor.exe",
-        "target_shell" : "Powershell",
-        "task_list": {
-            "GenEnvVar": ["VELO_UPLOAD_URL"],     
-            "GenConfVar": ["VELO_UPLOAD_URL"],
-            "Build" : ["data/tools/velociraptor/velociraptor-v0.75.6-windows-amd64/buildfile.sh"],
-            "ReqObj": ["data/tools/velociraptor/velociraptor-v0.75.6-windows-amd64/Collector_velociraptor-collector"]
-        
-        },
+    "name" : "Velociraptor-Windows-AMD64",
+    "object_type" : "Tool",
+    "task" : "1 Memory",
+    "author" : "Jonas",
+    "metadata": "Some metadata that will be used later",
+    "config_tag" : "VELO",
+    "local_path" : "/home/cyfjonass/aurr/aurr-manager/data/tools/velociraptor/velociraptor-v0.75.6-windows-amd64/Velociraptor.exe",
+    "target_shell" : "Powershell",
 
-        "call": {
-            "Default" : ["./Velociraptor.exe","--","--embedded_config", "Collector_velociraptor-collector"]
-        }
-    },
-        "name" : "Velociraptor-Windows-AMD64",
-        "object_type" : "Tool",
-        "task" : "1 Memory",
-        "author" : "Jonas",
-        "metadata": "Some metadata that will be used later",
-        "config_tag" : "VELO",
-        "local_path" : "/home/cyfjonass/aurr/aurr-manager/data/tools/velociraptor/velociraptor-v0.75.6-windows-amd64/Velociraptor.exe",
-        "target_shell" : "Powershell",
-        "task_list": {
-            "GenEnvVar": ["VELO_UPLOAD_URL"],     
-            "GenConfVar": ["VELO_UPLOAD_URL"],
-            "Build" : ["data/tools/velociraptor/velociraptor-v0.75.6-windows-amd64/buildfile.sh"],
-            "ReqObj": ["data/tools/velociraptor/velociraptor-v0.75.6-windows-amd64/Collector_velociraptor-collector"]
-        
-        },
-
-        "call": {
-            "Default" : ["./Velociraptor.exe","--","--embedded_config", "Collector_velociraptor-collector"]
-        }
+    "task_list": {
+        "GenEnvVar": ["VELO_UPLOAD_URL"],     
+        "GenConfVar": ["VELO_UPLOAD_URL"],
+        "Build" : ["data/tools/velociraptor/velociraptor-v0.75.6-windows-amd64/buildfile.sh"],
+        "ReqObj": ["data/tools/velociraptor/velociraptor-v0.75.6-windows-amd64/Collector_velociraptor-collector"]
+    
     },
 
+    "call": {
+        "Default" : ["./Velociraptor.exe","--","--embedded_config", "Collector_velociraptor-collector"]
+    }
+}
+```
 A given tool entry needs to be provided for each of the tools to be used. Here are some important notes: 
 
 - Name: Can be anything, but whenever something is pushed out in the cloud, this will be the name of that CloudReasource.
