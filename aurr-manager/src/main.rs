@@ -165,7 +165,7 @@ enum Switch {
         remote_path:Option<String>,
 
         #[arg(help = "Timeout of token validity in Hours", default_value = "6", long,short)]
-        timeout:Option<u8>
+        timeout:Option<u32>
     },
 
     #[command(about = "Grant permissions to a target cloud resource", aliases = ["Grant-Access", "ga"])]
@@ -178,7 +178,7 @@ enum Switch {
         permission:String,
 
         #[arg(help = "Timeout of token validity in Hours", default_value = "6")]
-        timeout:u8
+        timeout:u32
     },
     
     #[command(about = "Run a sync against a remote cloudborn location. Will download all new elements to the specified local_path")]
@@ -202,7 +202,7 @@ enum Switch {
         obj:RunObject,
 
         #[arg(help = "Timout of the token validity", default_value = "12", long, short,)]
-        timeout:u8
+        timeout:u32
     },
 
     #[command(about = "List infomation about different objects")]
@@ -519,6 +519,8 @@ impl Cli{
     /// Function to pass all the information to list in the cloud down to the aurr-core!
     async fn list_containers(&self, aurr:&AurrCore, cloud_string:Option<String>) -> Result<(), Box<dyn std::error::Error>>{
 
+        aurr.list_managers().await?;
+
         let r = match cloud_string.clone(){
             None => aurr.get_mgmr().list_containers().await,
             Some(path) => aurr.get_mgmr().list_blobs_container(&path).await
@@ -564,6 +566,8 @@ impl Cli{
 
     /// Function to upload a local resource 
     async fn upload_local_resource(&self, aurr:&AurrCore, local:LocalResource, remote:&str)  -> Result<(), Box<dyn std::error::Error>>{
+
+        aurr.list_managers().await?;
 
         let atool:AurrObject = match local {
 
@@ -622,13 +626,17 @@ impl Cli{
     /// A function to pass whatever you want to download down to the download function in the aurrcore
     async fn download_cloud_resource(&self, aurr:&AurrCore, remote:&str, local:&str) -> Result<(), Box<dyn std::error::Error>>{
 
+        aurr.list_managers().await?;
+
         aurr.download_cloud_resource(remote, local).await?;
 
         Ok(())
     }
 
-    async fn cloudify_local_resource(&self, aurr:&AurrCore, local:LocalResource, remote:&str, timeout:u8) -> Result<(), Box<dyn std::error::Error>>{
+    async fn cloudify_local_resource(&self, aurr:&AurrCore, local:LocalResource, remote:&str, timeout:u32) -> Result<(), Box<dyn std::error::Error>>{
         
+        aurr.list_managers().await?;
+
         let atool:AurrObject = match local {
 
             LocalResource::File { path } => {
@@ -679,6 +687,8 @@ impl Cli{
     /// A wrapper function to pass the sync arguments down to the manager.
     async fn sync(&self, aurr:&AurrCore, remote:&str, local:&str, timeout:i64, check_interval:i64) -> Result<(), Box<dyn std::error::Error>>{
 
+        
+
         let r = CloudResource::from_path(remote, &aurr.get_mgmr().get_type())?;
         aurr.get_mgmr().pull_sync(r, local, timeout, check_interval).await
     }
@@ -686,7 +696,7 @@ impl Cli{
     /// 
     /// Function to run a predefined automatic task. 
     /// 
-    async fn run(&self, aurr:&AurrCore, run_object:RunObject, timeout:u8) -> Result<(), Box<dyn std::error::Error>>{
+    async fn run(&self, aurr:&AurrCore, run_object:RunObject, timeout:u32) -> Result<(), Box<dyn std::error::Error>>{
 
         match run_object{
 
@@ -751,7 +761,7 @@ impl Cli{
     /// 
     /// Function to pass variables and grant permissions to a given target
     /// 
-    async fn grant_permissions(&self, aurr:&AurrCore, remote:&str, perm:&str, timeout:u8) -> Result<(), Box<dyn std::error::Error>>{
+    async fn grant_permissions(&self, aurr:&AurrCore, remote:&str, perm:&str, timeout:u32) -> Result<(), Box<dyn std::error::Error>>{
 
         let cr = CloudResource::from_path(remote, &aurr.get_mgmr().get_type())?;
 

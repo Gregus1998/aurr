@@ -1,5 +1,5 @@
 // Library to store all azure structs and functions. 
-use crate::{error, info, warning, lib::{
+use crate::{error, info, lib::{
     aurr_core::LocalResource}};
 
 use async_recursion::async_recursion;
@@ -160,8 +160,7 @@ impl AzureStorageMgmt {
         match StorageCredentials::sas_token(sas_token) {
 
             Err(e) => {
-                error!("Could not create storage credentials due to: {}",e );
-                Err(e.into())
+                Err(format!("Could not create storage credentials due to: {}",e).into())
             },
             Ok(s) => {
                 return Ok(AzureStorageMgmt { 
@@ -192,7 +191,6 @@ impl AzureStorageMgmt {
     /// 
     pub async fn list_containers(&self) -> Result<Vec<Container>, Box<dyn std::error::Error>>{
 
-    
         let blob_service_client =  BlobServiceClient::new(self.account_name.clone(),self.creds.clone()); 
 
         let mut response = blob_service_client.list_containers().into_stream();
@@ -248,8 +246,7 @@ impl AzureStorageMgmt {
         match self.check_connection().await{
             Ok(_) => (),
             Err(_) => {
-                warning!("Could not connect to the azure cloud.");
-                return Err("Connection error".into());
+                return Err("Could not connect to the azure cloud.".into());
             } 
         }
 
@@ -270,9 +267,7 @@ impl AzureStorageMgmt {
                 }
             },
             Err(e) => {
-                println!("{}",e.to_string());
-                error!("Failed check existance of container.");
-                Err("()".into())
+                Err(format!("Failed check existance of container.\n{}",e.to_string()).into())
             }
         }
             
@@ -330,8 +325,7 @@ impl AzureStorageMgmt {
         match bc.put_block_blob(blob_data).await{
             Ok(_) => (),
             Err(e) => {
-                error!("Could not upload binary data to <{}> <{}> due to: {}",container_name,blob_name, e.to_string());
-                return Err(e.into())}
+                return Err(format!("Could not upload binary data to <{}> <{}> due to: {}",container_name,blob_name, e.to_string()).into())}
         };
 
         Ok(AzureCloudResource::BlobClient(bc))
@@ -425,7 +419,7 @@ impl AzureStorageMgmt {
     ///Function to generate a sas-token for a specific cloud resource.
     ///     -> Very scary function. Use with care 
     /// 
-    pub async fn gen_blob_sas_token(&self, container:&str, t_resource:&AzureCloudResource, perm:BlobSasPermissions, timeout:u8) -> Option<BlobSharedAccessSignature>{
+    pub async fn gen_blob_sas_token(&self, container:&str, t_resource:&AzureCloudResource, perm:BlobSasPermissions, timeout:u32) -> Option<BlobSharedAccessSignature>{
         
         //Get the container client
         let cc = self.get_container_client(container).await.unwrap();
@@ -438,7 +432,7 @@ impl AzureStorageMgmt {
                 info!("Generated SAS-BLOB-TOKEN for AZURE_CLOUD <{}> <{}> <{}> Timeout: UTC+{}", self.account_name, container, bc.blob_name(),timeout);
                 Some(sas)},
             Err(e) => {
-                error!("Could not produce SAS token due to{}",e);
+                error!("Could not produce SAS token due to s{}",e);
                 None}
         }
     }
@@ -447,7 +441,7 @@ impl AzureStorageMgmt {
     /// Function to generate a sas-tokoen for a container
     /// If the container does not exist, it will be created. 
     /// 
-    pub async fn gen_container_sas_token(&self, container:&str, perm:BlobSasPermissions, timeout:u8) -> Option<BlobSharedAccessSignature>{
+    pub async fn gen_container_sas_token(&self, container:&str, perm:BlobSasPermissions, timeout:u32) -> Option<BlobSharedAccessSignature>{
         
         //Get the container client
         let cc = match self.get_container_client(container).await{
@@ -471,18 +465,18 @@ impl AzureStorageMgmt {
     ///
     /// Function to generae a sas token for a given container
     /// 
-    pub async fn gen_upload_container_sas(&self, container:&Container, timeout:u8)  -> Result<String, Box<dyn std::error::Error>>{
+    pub async fn gen_upload_container_sas(&self, container:&Container, timeout:u32)  -> Result<String, Box<dyn std::error::Error>>{
         let perm = BlobSasPermissions {
-                        read: true,
+                        read: false,
                         add: true,
                         create: true,
                         write: true,
-                        delete: true,
+                        delete: false,
                         delete_version: false,
                         permanent_delete: false,
-                        list: true,
-                        tags: true,
-                        move_: true,
+                        list: false,
+                        tags: false,
+                        move_: false,
                         execute: false,
                         ownership: false,
                         permissions: false,
@@ -495,7 +489,7 @@ impl AzureStorageMgmt {
         Ok(sas_token.token().unwrap())
     }
 
-    pub async fn gem_upload_container_url(&self, container:&Container, timeout:u8)-> Result<String, Box<dyn std::error::Error>>{
+    pub async fn gem_upload_container_url(&self, container:&Container, timeout:u32)-> Result<String, Box<dyn std::error::Error>>{
 
         let token = match self.gen_upload_container_sas(container, timeout).await{
             Ok(r) => r,
@@ -510,7 +504,7 @@ impl AzureStorageMgmt {
     /// Function to get the download url for AZURE blobs given a AzureCloudResource
     /// \n Need to provide a combination of containeroption + t_resource where it is possible to extract the desired container.
     /// 
-    pub async fn get_blob_download_url(&self, containeroption:Option<&str>, t_resource:AzureCloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>{
+    pub async fn get_blob_download_url(&self, containeroption:Option<&str>, t_resource:AzureCloudResource, timeout:u32) -> Result<String, Box<dyn std::error::Error>>{
 
         //Som error handling to make sure that you provide a sufficient amount of information. 
         let container = match containeroption{
@@ -691,7 +685,7 @@ impl AzureStorageMgmt {
 
 
 
-    async fn pull_sync_blob(&self, blob_name:&str, container_name:&str, download_dir:&str, timeout:u8, check_period:u8) -> Result<(),Box<dyn Error>>{
+    async fn pull_sync_blob(&self, blob_name:&str, container_name:&str, download_dir:&str, timeout:u32, check_period:u8) -> Result<(),Box<dyn Error>>{
 
         Ok(())
     }

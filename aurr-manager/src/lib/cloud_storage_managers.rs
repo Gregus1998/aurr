@@ -96,9 +96,9 @@ pub trait CloudServiceManagerTrait {
     async fn download(&self, resource:CloudResource, download_dir:&str) -> Result<(),Box<dyn Error>>;
     async fn pull_sync(&self, resource:CloudResource, download_dir:&str, timeout:i64, check_period:i64) -> Result<(),Box<dyn Error>>;
 
-    async fn grant_read_access(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>; 
-    async fn grant_upload_token(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>;
-    async fn grant_upload_url(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>;
+    async fn grant_read_access(&self, cloud_resource:CloudResource, timeout:u32) -> Result<String, Box<dyn std::error::Error>>; 
+    async fn grant_upload_token(&self, cloud_resource:CloudResource, timeout:u32) -> Result<String, Box<dyn std::error::Error>>;
+    async fn grant_upload_url(&self, cloud_resource:CloudResource, timeout:u32) -> Result<String, Box<dyn std::error::Error>>;
     
     fn get_name(&self) -> String;
     fn get_type(&self) -> String;
@@ -149,19 +149,19 @@ impl CloudServiceManagerTrait for CloudServiceManager{
         }
     }
 
-    async fn grant_read_access(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>> {
+    async fn grant_read_access(&self, cloud_resource:CloudResource, timeout:u32) -> Result<String, Box<dyn std::error::Error>> {
         match self{
             CloudServiceManager::Azure(asm) => asm.grant_read_access(cloud_resource,timeout).await
         }
     }
 
-    async fn grant_upload_token(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>> {
+    async fn grant_upload_token(&self, cloud_resource:CloudResource, timeout:u32) -> Result<String, Box<dyn std::error::Error>> {
         match self{
             CloudServiceManager::Azure(asm) => asm.grant_upload_token(cloud_resource,timeout).await
         }
     }
 
-    async fn grant_upload_url(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>> {
+    async fn grant_upload_url(&self, cloud_resource:CloudResource, timeout:u32) -> Result<String, Box<dyn std::error::Error>> {
 
         match self{
             CloudServiceManager::Azure(asm) => asm.grant_upload_url(cloud_resource, timeout).await
@@ -301,7 +301,7 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
         }
     }
 
-    async fn grant_read_access(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>>{
+    async fn grant_read_access(&self, cloud_resource:CloudResource, timeout:u32) -> Result<String, Box<dyn std::error::Error>>{
         
         match cloud_resource{
             CloudResource::Azure(acr) => {
@@ -324,7 +324,7 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
     /// Currently this only supports generating container SAS-upload tokens. 
     /// The permissions for the upload need to be tuned. 
     /// 
-    async fn grant_upload_token(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>> {
+    async fn grant_upload_token(&self, cloud_resource:CloudResource, timeout:u32) -> Result<String, Box<dyn std::error::Error>> {
         match cloud_resource.as_azure(){
             
             Some(acr) => {
@@ -345,7 +345,7 @@ impl CloudServiceManagerTrait for AzureStorageMgmt {
     ///
     /// Trait Function to grant a upload url to any type of azure cloud resource
     /// 
-    async fn grant_upload_url(&self, cloud_resource:CloudResource, timeout:u8) -> Result<String, Box<dyn std::error::Error>> {
+    async fn grant_upload_url(&self, cloud_resource:CloudResource, timeout:u32) -> Result<String, Box<dyn std::error::Error>> {
         match cloud_resource{
             CloudResource::Azure(cr) => {
                 let t:String = match cr{

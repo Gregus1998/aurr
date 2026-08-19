@@ -28,7 +28,7 @@
 To get started:
 ./aurr-manager --help
 
-or 
+ or 
 
 ## Core Idea: 
 This is a project that aims to automate remote tasks via the use of cloud resources. 

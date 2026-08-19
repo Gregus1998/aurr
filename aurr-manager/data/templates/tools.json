@@ -117,7 +117,7 @@
             "AtTarget" : ["Expand-Archive -Path kape.zip -DestinationPath .", "mkdir ./KAPE_PROCESS"]
         },
         "call" : {
-            "Default_Windows_Upload_Azure" : [".\\kape.exe --tsource", "KAPE_TARGET_SOURCE", "--tdest ./KAPE_PROCESS", "--target !BasicCollection", "--vss --asu","\"KAPE_SAS-UPLOAD-URI\"", "--vhdx abcdefg"],
+            "Default_Windows_Upload_Azure" : [".\\kape.exe --tsource", "$KAPE_TARGET_SOURCE", "--tdest ./KAPE_PROCESS", "--target !BasicCollection", "--vss --asu","\"$KAPE_UPLOAD_URL\"", "--vhdx abcdefg"],
             "Default_Windows_Test" : [".\\kape.exe --help"]
         }
     }

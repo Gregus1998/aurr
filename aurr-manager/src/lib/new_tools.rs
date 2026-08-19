@@ -326,7 +326,7 @@ impl AurrObject {
     }
 
     /// Function to cloudify a given object. 
-    pub async fn cloudify(&self, cloud_manager:&CloudServiceManager, cloud_location:&str, timeout:u8) -> Result<String, Box<dyn std::error::Error>>{
+    pub async fn cloudify(&self, cloud_manager:&CloudServiceManager, cloud_location:&str, timeout:u32) -> Result<String, Box<dyn std::error::Error>>{
 
         let cr = match cloud_manager.upload(super::aurr_core::LocalResource::AurrObject(self.clone()), cloud_location).await{
             Ok(t) => {
@@ -358,7 +358,7 @@ impl AurrObject {
             }
         };
 
-        let timeout = match config.get::<u8>("CLOUD_TOKEN_READ_TIMEOUT"){
+        let timeout = match config.get::<u32>("CLOUD_TOKEN_READ_TIMEOUT"){
             Some(s) => s,
             None => 12
         };
@@ -444,7 +444,7 @@ impl AurrObject {
                 Err(_) => return Err("Need to implment CloudResource::from_path for the specified CloudResourceManager".into())
         };
         
-        let token_timeout = config.get::<u8>("CLOUD_TOKEN_UPLOAD_TIMEOUT").unwrap();
+        let token_timeout = config.get::<u32>("CLOUD_TOKEN_UPLOAD_TIMEOUT").unwrap();
 
         let s:String = if var.ends_with("UPLOAD_TOKEN"){
             

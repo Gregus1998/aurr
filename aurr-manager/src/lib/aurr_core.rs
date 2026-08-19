@@ -480,11 +480,16 @@ impl AurrCore{
 
     /// New function to handle NEW_TOOLS
     /// 
-    pub async fn run_case(&self, tools:&mut HashMap<String,AurrObject>,case_template:CaseTemplate, config:&Config, timeout:u8) -> Result<String, Box<dyn std::error::Error>>{
+    pub async fn run_case(&self, tools:&mut HashMap<String,AurrObject>,case_template:CaseTemplate, config:&Config, timeout:u32) -> Result<String, Box<dyn std::error::Error>>{
 
 
         info!("Running \"run_case\" for case template: {}", case_template.name);
 
+        unsafe {
+         std::env::set_var("CLOUD_TOKEN_READ_TIMEOUT", timeout.to_string());
+        }
+
+        
         //Fetching and converting the OS for the given task
         let os = OperatingSystem::from_str(&case_template.task_template.os).unwrap();
 
@@ -531,7 +536,6 @@ impl AurrCore{
 
                 // Extending the cmds with the call option for a traget tool.
                 for t in call_options.iter(){
-                    let new_cmd = tool.get_cmdline(&t, &tool_config);
                     cmds.extend(tool.get_cmdline(&t, &tool_config));
                 }
             }
